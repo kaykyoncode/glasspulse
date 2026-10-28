@@ -13,7 +13,7 @@
 </p>
 
 <p align="center">
-  <img src="docs/painel.png" alt="GlassPulse em layout painel" width="720">
+  <img src="docs/temas.png" alt="GlassPulse nos temas Noite, Sukuna e Gojo" width="900">
 </p>
 
 > **English:** GlassPulse is a featherlight, glassy system-monitor widget for the Windows 11 desktop
@@ -24,6 +24,7 @@
 
 - **Vidro de verdade:** acrílico do Windows 11 (desfoque do que está atrás), cantos redondos do DWM, tema escuro com acentos por categoria e tipografia Inter com números tabulares.
 - **Fica na área de trabalho:** atrás de todas as janelas, sem botão na barra de tarefas, fora do Alt+Tab, sem roubar foco. Arraste para posicionar; a posição é salva.
+- **Temas:** Noite (padrão), **Sukuna** e **Gojo** já inclusos — e criar o seu é só escrever um JSON de ~20 linhas. Troca na hora pelo menu, sem reiniciar.
 - **Multi-monitor:** escolha o monitor e o canto pelo menu (ou arraste — ele "gruda" nas bordas). Layout em **coluna** (ideal para monitor vertical) ou **painel largo**.
 - **Números que batem com o Gerenciador de Tarefas:** usa os mesmos contadores do Windows (PDH) — uso de CPU "Processor Utility", memória "Em uso", rede e atividade de disco.
 - **Leve de verdade:** ~20 MB de RAM (≈11 MB na coluna *Memória* do Gerenciador), ~0,2 % da CPU total. Prioridade abaixo do normal, sem timers de 1 ms, e **para de pintar** quando um jogo/app em tela cheia cobre o widget.
@@ -42,8 +43,47 @@
 
 Os números mudam de cor conforme apertam: âmbar acima de ~72 % e coral acima de ~88 %.
 
-<p align="center"><img src="docs/coluna.png" alt="Layout em coluna" width="300"></p>
+### Layouts
 
+<p align="center">
+  <img src="docs/coluna.png" alt="Layout em coluna" width="260">
+  &nbsp;&nbsp;
+  <img src="docs/painel.png" alt="Layout em painel largo" width="560">
+</p>
+
+## Temas
+
+Menu (clique direito) → **Tema**. Inclusos:
+
+| Tema | Visual |
+|---|---|
+| **Noite** | violeta e ciano sobre vidro azul-noite (o original) |
+| **Sukuna** | vinho-negro, carmesim, rosa-cabelo e osso; ao esquentar o número vira brasa e depois branco incandescente |
+| **Gojo** | azul-gelo, roxo e branco sobre vidro azul-marinho |
+
+**Crie o seu:** salve um `.json` em `%APPDATA%\MonitorPC\temas\` (o nome do arquivo é o id do tema) e ele aparece no menu.
+Qualquer campo que faltar ou tiver cor inválida herda do tema Noite, e um arquivo quebrado é ignorado.
+
+```json
+{
+  "nome": "Meu tema",
+  "descricao": "Opcional: aparece como dica no menu.",
+  "cores": { "cpu": "#FF7FA3", "ram": "#E8455E", "gpu": "#FF9A5C", "download": "#F2E6D6",
+             "upload": "#D85A84", "disco": "#E6BC7E", "neutro": "#B9A6AB" },
+  "alerta": { "medio": "#FF9F43", "critico": "#FFF0C8" },
+  "vidro": { "tinta": "#14040A",
+             "lavagem1": "#B0102A", "lavagem1_alpha": 78,
+             "lavagem2": "#FF7FA3", "lavagem2_alpha": 30,
+             "cartao": "#FFD9E0", "borda": "#FFB3C0" },
+  "texto": "#FFF1EA",
+  "marca": ["#FF7FA3", "#C1121F"],
+  "icone": "assets/icone-sukuna.png"
+}
+```
+
+`alerta` são as cores para quando o uso passa de ~72 % (`medio`) e de ~94 % (`critico`); `marca` é o gradiente do
+ícone quando não há arte em `icone` (caminho relativo à pasta do projeto, usado na bandeja e no cabeçalho).
+Os temas do projeto ficam em [`temas/`](temas/) — bons pontos de partida.
 ## Instalação
 
 Requisitos: **Windows 11**, **Python 3.12+** (com `pythonw.exe`). Placa NVIDIA é opcional (sem ela, o bloco de GPU some).
@@ -71,7 +111,7 @@ Para abrir agora: dê dois cliques no atalho **Monitor do PC** ou rode `pythonw 
 | Fechar | menu → **Sair** ou `pythonw monitor_pc.pyw --sair` |
 | Iniciar com o Windows | menu → *Iniciar com o Windows* |
 
-Configuração em `%APPDATA%\MonitorPC\config.json` (a maior parte pelo menu). Um campo só existe no arquivo:
+Configuração em `%APPDATA%\MonitorPC\config.json` (a maior parte pelo menu, inclusive o tema). Um campo só existe no arquivo:
 `"plano_mbps"` — a velocidade contratada, em Mb/s, para o "% do plano" da rede (`0` esconde). Erros vão para `%APPDATA%\MonitorPC\erro.log`.
 
 ## Como funciona
@@ -81,7 +121,7 @@ Configuração em `%APPDATA%\MonitorPC\config.json` (a maior parte pelo menu). U
 - **Pintura em duas camadas:** fundo + textos são refeitos 1×/s num `QPixmap`; gráficos e barras são desenhados por cima a 25 fps só durante ~0,7 s após cada amostra. Repaint parcial foi descartado: janelas translúcidas com acrílico deixam retângulos escuros.
 - **Robustez:** instância única (mutex), watchdog que se relança se o Explorer reiniciar, `--sair` fecha a instância em execução.
 
-Estrutura: `monitor_pc.pyw` (entrada) · `src/monitor/` (`coletores.py`, `widget.py`, `winapi.py`, `app.py`, `config.py`, `icone.py`) · `fontes/` · `ferramentas/gerar_icone.py` · `instalar.ps1`.
+Estrutura: `monitor_pc.pyw` (entrada) · `src/monitor/` (`coletores.py`, `widget.py`, `temas.py`, `winapi.py`, `app.py`, `config.py`, `icone.py`) · `temas/` · `assets/` · `fontes/` · `ferramentas/gerar_icone.py` · `instalar.ps1`.
 
 ## Limitações e ideias
 
@@ -92,5 +132,5 @@ Estrutura: `monitor_pc.pyw` (entrada) · `src/monitor/` (`coletores.py`, `widget
 
 ## Licença e créditos
 
-Código sob licença [MIT](LICENSE). A fonte [Inter](https://github.com/rsms/inter) (em `fontes/`) segue a
+Código sob licença [MIT](LICENSE). Os ícones (`assets/`) foram gerados com IA (GPT Image, via Codex CLI) e tratados por `ferramentas/gerar_icone.py`. A fonte [Inter](https://github.com/rsms/inter) (em `fontes/`) segue a
 [SIL Open Font License 1.1](fontes/OFL.txt). Interface com [Qt for Python (PySide6)](https://doc.qt.io/qtforpython-6/) — instalado via pip, não redistribuído aqui.

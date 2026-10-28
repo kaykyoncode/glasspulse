@@ -19,6 +19,7 @@ PADRAO = {
     "x_rel": 0,                 # posição livre, relativa ao canto do monitor
     "y_rel": 0,
     "travado": False,
+    "tema": "padrao",           # id do tema (arquivo em temas/ ou %APPDATA%\\MonitorPC\\temas)
     "vidro": "medio",           # leve | medio | fosco
     "layout": "coluna",         # coluna | painel
     "mostrar_nucleos": True,
@@ -72,7 +73,10 @@ def _pythonw() -> str:
 
 def criar_atalho(destino: str) -> None:
     script = os.path.join(RAIZ, "monitor_pc.pyw")
-    ico = os.path.join(RAIZ, "assets", "icone.ico")
+    tema = str(Config().get("tema", "padrao"))
+    ico = os.path.join(RAIZ, "assets", f"icone-{tema}.ico")
+    if not os.path.exists(ico):
+        ico = os.path.join(RAIZ, "assets", "icone.ico")
     ps = (
         "$s=(New-Object -ComObject WScript.Shell).CreateShortcut('{lnk}');"
         "$s.TargetPath='{exe}';$s.Arguments='\"{script}\"';$s.WorkingDirectory='{raiz}';"

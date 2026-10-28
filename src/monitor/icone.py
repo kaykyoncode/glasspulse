@@ -1,19 +1,22 @@
 # -*- coding: utf-8 -*-
-"""Ícone do widget (barra de bandeja e atalhos), desenhado em código."""
+"""Ícone do widget (bandeja e atalhos): arte gerada do tema, ou desenho em código como reserva."""
 from __future__ import annotations
+
+import os
 
 from PySide6.QtCore import QRectF, Qt
 from PySide6.QtGui import QColor, QIcon, QLinearGradient, QPainter, QPixmap
 
 
-def pixmap(tam: int) -> QPixmap:
+def pixmap(tam: int, cor1: str = "#8E7CFF", cor2: str = "#27D3F0") -> QPixmap:
+    """Reserva: quadrado arredondado em gradiente com 3 barras."""
     pm = QPixmap(tam, tam)
     pm.fill(Qt.transparent)
     p = QPainter(pm)
     p.setRenderHints(QPainter.Antialiasing)
     g = QLinearGradient(0, 0, tam, tam)
-    g.setColorAt(0, QColor("#8E7CFF"))
-    g.setColorAt(1, QColor("#27D3F0"))
+    g.setColorAt(0, QColor(cor1))
+    g.setColorAt(1, QColor(cor2))
     p.setPen(Qt.NoPen)
     p.setBrush(g)
     raio = tam * 0.28
@@ -28,8 +31,17 @@ def pixmap(tam: int) -> QPixmap:
     return pm
 
 
-def icone() -> QIcon:
+def icone(tema=None) -> QIcon:
+    """Usa a arte do tema (campo "icone") quando existir; senão, o desenho em código nas cores da marca."""
     ic = QIcon()
+    arte = tema.caminho_icone() if tema is not None else ""
+    if arte and os.path.exists(arte):
+        base = QPixmap(arte)
+        if not base.isNull():
+            for t in (16, 20, 24, 32, 48, 64, 128, 256):
+                ic.addPixmap(base.scaled(t, t, Qt.KeepAspectRatio, Qt.SmoothTransformation))
+            return ic
+    c1, c2 = (tema.marca if tema is not None else ("#8E7CFF", "#27D3F0"))
     for t in (16, 20, 24, 32, 48, 64, 128, 256):
-        ic.addPixmap(pixmap(t))
+        ic.addPixmap(pixmap(t, c1, c2))
     return ic

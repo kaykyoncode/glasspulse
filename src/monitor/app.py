@@ -43,7 +43,7 @@ def main() -> int:
     from PySide6.QtGui import QAction, QActionGroup, QFontDatabase, QGuiApplication
     from PySide6.QtWidgets import QApplication, QMenu, QSystemTrayIcon
 
-    from . import coletores, icone
+    from . import coletores, icone, temas
     from .widget import MonitorWidget
 
     try:
@@ -54,7 +54,7 @@ def main() -> int:
     app = QApplication(sys.argv[:1])
     app.setQuitOnLastWindowClosed(False)
     app.setApplicationName("Monitor do PC")
-    app.setWindowIcon(icone.icone())
+    app.setWindowIcon(icone.icone(temas.obter(config.Config().get("tema"))))
     for arq in glob.glob(os.path.join(config.RAIZ, "fontes", "*.otf")):
         QFontDatabase.addApplicationFont(arq)
 
@@ -88,6 +88,14 @@ def main() -> int:
         if vidro:
             janela.aplicar_vidro()
         janela.update()
+
+    def escolher_tema(id_: str) -> None:
+        cfg["tema"] = id_
+        cfg.salvar()
+        tema = temas.obter(id_)
+        janela.definir_tema(tema)
+        bandeja.setIcon(icone.icone(tema))
+        app.setWindowIcon(icone.icone(tema))
 
     def escolher_monitor(nome: str) -> None:
         cfg["livre"] = False
@@ -130,6 +138,15 @@ def main() -> int:
         a.triggered.connect(lambda v: definir("travado", bool(v)))
 
         m.addSeparator()
+        sub = m.addMenu("Tema")
+        grupo = QActionGroup(sub)
+        for id_, tema in temas.listar().items():
+            act = QAction(tema.nome, sub, checkable=True, checked=(janela.t.id == id_))
+            act.setToolTip(tema.descricao)
+            act.triggered.connect(lambda _=False, i=id_: escolher_tema(i))
+            grupo.addAction(act)
+            sub.addAction(act)
+
         sub = m.addMenu("Aparência")
         grupo = QActionGroup(sub)
         for chave, rot in (("leve", "Vidro leve"), ("medio", "Vidro médio"), ("fosco", "Vidro fosco")):
@@ -180,7 +197,7 @@ def main() -> int:
     if janela.teste_topo:
         winapi.trazer_ao_topo(janela._hwnd)
 
-    bandeja = QSystemTrayIcon(icone.icone(), app)
+    bandeja = QSystemTrayIcon(icone.icone(janela.t), app)
     bandeja.setToolTip("Monitor do PC")
     bandeja.setContextMenu(menu_bandeja)
     bandeja.activated.connect(

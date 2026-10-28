@@ -1,0 +1,17 @@
+{
+  "nome": "Gojo",
+  "descricao": "Olhos Seis: azul-gelo, roxo e branco sobre vidro azul-marinho.",
+  "cores": {
+    "cpu": "#7CC8FF", "ram": "#A78BFA", "gpu": "#5EEAD4", "download": "#E6F1FF",
+    "upload": "#C084FC", "disco": "#B8C7FF", "neutro": "#A5B4D0"
+  },
+  "alerta": { "medio": "#FFC27A", "critico": "#FF6B8B" },
+  "vidro": {
+    "tinta": "#070C1E",
+    "lavagem1": "#3B82F6", "lavagem1_alpha": 62,
+    "lavagem2": "#A78BFA", "lavagem2_alpha": 38,
+    "cartao": "#E6F1FF", "borda": "#CFE3FF"
+  },
+  "texto": "#F5F8FF",
+  "marca": ["#7CC8FF", "#A78BFA"]
+}

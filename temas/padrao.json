@@ -1,0 +1,18 @@
+{
+  "nome": "Noite",
+  "descricao": "Violeta e ciano sobre vidro azul-noite (o visual original).",
+  "cores": {
+    "cpu": "#8E7CFF", "ram": "#27D3F0", "gpu": "#7BE27A", "download": "#58A6FF",
+    "upload": "#FF7EB6", "disco": "#FFB84D", "neutro": "#9AA7C7"
+  },
+  "alerta": { "medio": "#FFB84D", "critico": "#FF5C70" },
+  "vidro": {
+    "tinta": "#0A0C14",
+    "lavagem1": "#8E7CFF", "lavagem1_alpha": 52,
+    "lavagem2": "#27D3F0", "lavagem2_alpha": 34,
+    "cartao": "#FFFFFF", "borda": "#FFFFFF"
+  },
+  "texto": "#FFFFFF",
+  "marca": ["#8E7CFF", "#27D3F0"],
+  "icone": "assets/icone-glasspulse.png"
+}

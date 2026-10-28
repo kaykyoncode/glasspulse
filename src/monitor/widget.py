@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ctypes
+import os
 import time
 from collections import deque
 from ctypes import wintypes as wt
@@ -13,17 +14,9 @@ from PySide6.QtGui import (QColor, QFont, QFontMetricsF, QGuiApplication, QLinea
                            QPainter, QPainterPath, QPen, QPixmap, QRadialGradient)
 from PySide6.QtWidgets import QApplication, QWidget
 
-from . import winapi
+from . import temas, winapi
 
-# ---- identidade visual -----------------------------------------------------------
-VIOLETA, CIANO, VERDE = "#8E7CFF", "#27D3F0", "#7BE27A"
-AZUL, ROSA, AMBAR, CORAL = "#58A6FF", "#FF7EB6", "#FFB84D", "#FF5C70"
-NEUTRO = "#9AA7C7"
-
-TEXTO = QColor(255, 255, 255, 240)
-TEXTO2 = QColor(255, 255, 255, 158)
-TEXTO3 = QColor(255, 255, 255, 98)
-
+# ---- medidas (as cores vêm do tema ativo: temas.py)
 RAIO_JANELA = 8        # o DWM arredonda com 8 px; desenhamos igual
 RAIO_CARD = 12
 MARGEM = 14
@@ -53,18 +46,19 @@ def misturar(a: QColor, b: QColor, t: float) -> QColor:
                   int(a.blue() + (b.blue() - a.blue()) * t), int(a.alpha() + (b.alpha() - a.alpha()) * t))
 
 
-def calor(base: str | QColor, pct: float) -> QColor:
-    """Acento normal até ~72%; vira âmbar e depois coral conforme o uso aperta."""
+def calor(base: str | QColor, pct: float, t) -> QColor:
+    """Acento normal até ~72%; muda para a cor 'médio' e depois 'crítico' do tema conforme o uso aperta."""
     c = QColor(base)
+    medio, critico = QColor(t.medio), QColor(t.critico)
     if pct < 72:
         return c
     if pct < 78:
-        return misturar(c, QColor(AMBAR), (pct - 72) / 6)
+        return misturar(c, medio, (pct - 72) / 6)
     if pct < 88:
-        return QColor(AMBAR)
+        return medio
     if pct < 94:
-        return misturar(QColor(AMBAR), QColor(CORAL), (pct - 88) / 6)
-    return QColor(CORAL)
+        return misturar(medio, critico, (pct - 88) / 6)
+    return critico
 
 
 def mais_claro(c: QColor, t: float = 0.28) -> QColor:
@@ -134,6 +128,8 @@ class MonitorWidget(QWidget):
         self.setAttribute(Qt.WA_ShowWithoutActivating)
         self.setAttribute(Qt.WA_MacShowFocusRect, False)
 
+        self.t = temas.obter(cfg.get("tema"))
+        self._cores_do_tema()
         self.d: dict | None = None
         self.procs: list = []
         self.tw: dict[str, Tween] = {}
@@ -158,6 +154,20 @@ class MonitorWidget(QWidget):
         self.anim.timeout.connect(self._quadro)
 
         self.recalcular_layout()
+
+    # ------------------------------------------------------------------ tema
+
+    def _cores_do_tema(self) -> None:
+        for nome, alfa in (("T1", 240), ("T2", 158), ("T3", 98)):
+            setattr(self, nome, cor(self.t.texto, alfa))
+        arte = self.t.caminho_icone()
+        self._arte = QPixmap(arte) if arte and os.path.exists(arte) else None
+        self._arte_cache: dict[float, QPixmap] = {}
+
+    def definir_tema(self, tema) -> None:
+        self.t = tema
+        self._cores_do_tema()
+        self.aplicar_vidro()                  # refaz o acrílico com a tinta nova e a camada estática
 
     # ------------------------------------------------------------------ layout
 
@@ -274,7 +284,9 @@ class MonitorWidget(QWidget):
     def aplicar_vidro(self) -> None:
         if self._hwnd:
             nivel = self.cfg["vidro"]
-            winapi.aplicar_vidro(self._hwnd, (10, 12, 20, TINTA_ACRILICO.get(nivel, 0x3A)))
+            tinta = QColor(self.t.tinta)
+            winapi.aplicar_vidro(self._hwnd, (tinta.red(), tinta.green(), tinta.blue(),
+                                              TINTA_ACRILICO.get(nivel, 0x3A)))
         self._cache = None
         self.pedir_completo()
 
@@ -439,9 +451,10 @@ class MonitorWidget(QWidget):
     # ---- peças comuns
 
     def _fundo(self, p: QPainter) -> None:
+        t = self.t
         r = QRectF(self.rect()).adjusted(0.5, 0.5, -0.5, -0.5)
         p.setPen(Qt.NoPen)
-        p.setBrush(QColor(10, 12, 20, VIDROS.get(self.cfg["vidro"], 150)))
+        p.setBrush(cor(t.tinta, VIDROS.get(self.cfg["vidro"], 150)))
         p.drawRoundedRect(r, RAIO_JANELA, RAIO_JANELA)
         # lavagem de cor suave nos cantos (dá profundidade ao vidro)
         p.save()
@@ -449,29 +462,29 @@ class MonitorWidget(QWidget):
         clip.addRoundedRect(r, RAIO_JANELA, RAIO_JANELA)
         p.setClipPath(clip)
         g1 = QRadialGradient(r.left() + 40, r.top() + 20, 330)
-        g1.setColorAt(0, cor(VIOLETA, 52))
-        g1.setColorAt(1, cor(VIOLETA, 0))
+        g1.setColorAt(0, cor(t.lavagem1, t.lavagem1_alpha))
+        g1.setColorAt(1, cor(t.lavagem1, 0))
         p.setBrush(g1)
         p.drawRect(r)
         g2 = QRadialGradient(r.right() - 20, r.bottom() - 10, 360)
-        g2.setColorAt(0, cor(CIANO, 34))
-        g2.setColorAt(1, cor(CIANO, 0))
+        g2.setColorAt(0, cor(t.lavagem2, t.lavagem2_alpha))
+        g2.setColorAt(1, cor(t.lavagem2, 0))
         p.setBrush(g2)
         p.drawRect(r)
         p.restore()
         p.setBrush(Qt.NoBrush)
-        p.setPen(QPen(QColor(255, 255, 255, 52), 1))
+        p.setPen(QPen(cor(t.borda, 52), 1))
         p.drawRoundedRect(r, RAIO_JANELA, RAIO_JANELA)
 
     def _cartao(self, p: QPainter, r: QRectF) -> None:
         p.setPen(Qt.NoPen)
         g = QLinearGradient(r.topLeft(), r.bottomLeft())
-        g.setColorAt(0, QColor(255, 255, 255, 24))
-        g.setColorAt(1, QColor(255, 255, 255, 10))
+        g.setColorAt(0, cor(self.t.cartao, 24))
+        g.setColorAt(1, cor(self.t.cartao, 10))
         p.setBrush(g)
         p.drawRoundedRect(r, RAIO_CARD, RAIO_CARD)
         p.setBrush(Qt.NoBrush)
-        p.setPen(QPen(QColor(255, 255, 255, 24), 1))
+        p.setPen(QPen(cor(self.t.cartao, 24), 1))
         p.drawRoundedRect(r.adjusted(0.5, 0.5, -0.5, -0.5), RAIO_CARD, RAIO_CARD)
 
     def _rotulo(self, p: QPainter, x: float, y: float, titulo: str, acento: str, sub: str = "") -> None:
@@ -479,32 +492,32 @@ class MonitorWidget(QWidget):
         p.setBrush(cor(acento))
         p.drawEllipse(QPointF(x + 3.5, y + 8), 3.5, 3.5)
         f = self._f(10.5, QFont.Weight.Bold, 1.4)
-        self._t(p, x + 13, y, 200, 16, titulo, f, TEXTO)
+        self._t(p, x + 13, y, 200, 16, titulo, f, self.T1)
         if sub:
             self._t(p, x + 13 + self._larg(titulo, f) + 8, y, 220, 16, sub,
-                    self._f(11, QFont.Weight.Medium), TEXTO3)
+                    self._f(11, QFont.Weight.Medium), self.T3)
 
     def _pct_grande(self, p: QPainter, x_dir: float, y: float, valor: float, acento: str) -> None:
-        c = calor(acento, valor) if acento else TEXTO
+        c = calor(acento, valor, self.t) if acento else self.T1
         c = mais_claro(c, 0.18)
         s = f"{valor:.0f}"
         fg, fp = self._f(30, QFont.Weight.DemiBold), self._f(14, QFont.Weight.Medium)
         wp = self._larg("%", fp)
         wn = self._larg(s, fg)
         self._t(p, x_dir - wp - wn - 2, y, wn + 2, 36, s, fg, c, Qt.AlignRight)
-        self._t(p, x_dir - wp, y + 7, wp, 22, "%", fp, TEXTO2, Qt.AlignRight)
+        self._t(p, x_dir - wp, y + 7, wp, 22, "%", fp, self.T2, Qt.AlignRight)
 
     def _barra(self, p: QPainter, r: QRectF, pct: float, acento: str, aquecer: bool = True) -> None:
         raio = r.height() / 2
         p.setPen(Qt.NoPen)
-        p.setBrush(QColor(255, 255, 255, 22))
+        p.setBrush(cor(self.t.cartao, 22))
         p.drawRoundedRect(r, raio, raio)
         frac = max(0.0, min(1.0, pct / 100.0))
         if frac <= 0.001:
             return
         w = max(r.height(), r.width() * frac)
         cheio = QRectF(r.x(), r.y(), w, r.height())
-        base = calor(acento, pct) if aquecer else QColor(acento)
+        base = calor(acento, pct, self.t) if aquecer else QColor(acento)
         g = QLinearGradient(cheio.topLeft(), cheio.topRight())
         g.setColorAt(0, base)
         g.setColorAt(1, mais_claro(base, 0.32))
@@ -549,7 +562,7 @@ class MonitorWidget(QWidget):
         p.restore()
 
     def _grade(self, p: QPainter, r: QRectF) -> None:
-        p.setPen(QPen(QColor(255, 255, 255, 13), 1))
+        p.setPen(QPen(cor(self.t.cartao, 13), 1))
         for f in (0.25, 0.5, 0.75):
             y = r.top() + r.height() * f
             p.drawLine(QPointF(r.left(), y), QPointF(r.right(), y))
@@ -558,25 +571,35 @@ class MonitorWidget(QWidget):
 
     def _cabecalho(self, p: QPainter) -> None:
         x, y = MARGEM, MARGEM
-        ic = QRectF(x, y + 6, 34, 34)
-        g = QLinearGradient(ic.topLeft(), ic.bottomRight())
-        g.setColorAt(0, cor(VIOLETA))
-        g.setColorAt(1, cor(CIANO))
-        p.setPen(Qt.NoPen)
-        p.setBrush(g)
-        p.drawRoundedRect(ic, 10, 10)
-        p.setBrush(QColor(255, 255, 255, 235))
-        for i, h in enumerate((10, 18, 13)):
-            p.drawRoundedRect(QRectF(ic.x() + 9 + i * 6.5, ic.bottom() - 8 - h, 4, h), 2, 2)
-        self._t(p, x + 44, y + 4, 200, 22, "Monitor do PC", self._f(15, QFont.Weight.DemiBold), TEXTO)
+        if self._arte is not None and not self._arte.isNull():
+            dpr = self.devicePixelRatioF()
+            pm = self._arte_cache.get(dpr)
+            if pm is None:                     # reduz 1x com filtro suave para o tamanho real em pixels
+                lado = int(40 * dpr)
+                pm = self._arte.scaled(lado, lado, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+                pm.setDevicePixelRatio(dpr)
+                self._arte_cache[dpr] = pm
+            p.drawPixmap(int(x - 3), int(y + 3), pm)
+        else:
+            ic = QRectF(x, y + 6, 34, 34)
+            g = QLinearGradient(ic.topLeft(), ic.bottomRight())
+            g.setColorAt(0, cor(self.t.marca[0]))
+            g.setColorAt(1, cor(self.t.marca[1]))
+            p.setPen(Qt.NoPen)
+            p.setBrush(g)
+            p.drawRoundedRect(ic, 10, 10)
+            p.setBrush(QColor(255, 255, 255, 235))
+            for i, h in enumerate((10, 18, 13)):
+                p.drawRoundedRect(QRectF(ic.x() + 9 + i * 6.5, ic.bottom() - 8 - h, 4, h), 2, 2)
+        self._t(p, x + 44, y + 4, 200, 22, "Monitor do PC", self._f(15, QFont.Weight.DemiBold), self.T1)
         sub = f"Ligado há {duracao(self.d['uptime'])}" if self.d else "Iniciando…"
-        self._t(p, x + 44, y + 24, 220, 18, sub, self._f(11.5, QFont.Weight.Medium), TEXTO2)
+        self._t(p, x + 44, y + 24, 220, 18, sub, self._f(11.5, QFont.Weight.Medium), self.T2)
         agora = datetime.now()
         direita = x + self._larg_header
         self._t(p, direita - 120, y + 2, 120, 26, agora.strftime("%H:%M"),
-                self._f(21, QFont.Weight.DemiBold), TEXTO, Qt.AlignRight)
+                self._f(21, QFont.Weight.DemiBold), self.T1, Qt.AlignRight)
         data = f"{SEMANA[agora.weekday()]}, {agora.day} {MESES[agora.month - 1]}"
-        self._t(p, direita - 120, y + 26, 120, 16, data, self._f(11.5, QFont.Weight.Medium), TEXTO2,
+        self._t(p, direita - 120, y + 26, 120, 16, data, self._f(11.5, QFont.Weight.Medium), self.T2,
                 Qt.AlignRight)
 
     # ---- cartões: cada um desenha a parte estática (texto, 1x/s) ou a dinâmica (todo quadro)
@@ -585,15 +608,15 @@ class MonitorWidget(QWidget):
         cpu = self.d["cpu"]
         x, w = r.x() + INT, r.width() - 2 * INT
         if estatico:
-            self._rotulo(p, x, r.y() + 14, "CPU", VIOLETA, self.coletor.cpu_nome)
+            self._rotulo(p, x, r.y() + 14, "CPU", self.t.cpu, self.coletor.cpu_nome)
             info = f"{self.coletor.cpu_threads} threads"
             if cpu["ghz"]:
                 info = f"{num(cpu['ghz'], 2)} GHz  ·  " + info
-            self._t(p, x, r.y() + 33, w - 70, 16, info, self._f(11.5), TEXTO2)
+            self._t(p, x, r.y() + 33, w - 70, 16, info, self._f(11.5), self.T2)
             self._grade(p, QRectF(x, r.y() + 56, w, 44))
             return
-        self._pct_grande(p, r.right() - INT, r.y() + 10, self._v("cpu"), VIOLETA)
-        self._grafico(p, QRectF(x, r.y() + 56, w, 44), self.h_cpu, 100.0, VIOLETA)
+        self._pct_grande(p, r.right() - INT, r.y() + 10, self._v("cpu"), self.t.cpu)
+        self._grafico(p, QRectF(x, r.y() + 56, w, 44), self.h_cpu, 100.0, self.t.cpu)
         if self.cfg["mostrar_nucleos"]:
             n = len(cpu["nucleos"])
             area = QRectF(x, r.y() + 110, w, 28)
@@ -603,32 +626,32 @@ class MonitorWidget(QWidget):
             for i in range(n):
                 v = self._v(f"n{i}")
                 bx = area.x() + i * (lb + esp)
-                p.setBrush(QColor(255, 255, 255, 20))
+                p.setBrush(cor(self.t.cartao, 20))
                 p.drawRoundedRect(QRectF(bx, area.y(), lb, area.height()), 2, 2)
                 h = max(2.0, area.height() * min(100.0, v) / 100.0)
-                p.setBrush(calor(mais_claro(QColor(VIOLETA), 0.1), v))
+                p.setBrush(calor(mais_claro(QColor(self.t.cpu), 0.1), v, self.t))
                 p.drawRoundedRect(QRectF(bx, area.bottom() - h, lb, h), 2, 2)
 
     def _c_ram(self, p: QPainter, r: QRectF, estatico: bool) -> None:
         ram = self.d["ram"]
         x, w = r.x() + INT, r.width() - 2 * INT
         if estatico:
-            self._rotulo(p, x, r.y() + 14, "MEMÓRIA", CIANO, "RAM")
+            self._rotulo(p, x, r.y() + 14, "MEMÓRIA", self.t.ram, "RAM")
             f = self._f(22, QFont.Weight.DemiBold)
             usada = cap(ram["usada"])
-            self._t(p, x, r.y() + 34, 140, 28, usada, f, TEXTO)
+            self._t(p, x, r.y() + 34, 140, 28, usada, f, self.T1)
             self._t(p, x + self._larg(usada, f) + 6, r.y() + 40, 140, 20, "de " + cap(ram["total"]),
-                    self._f(12), TEXTO2)
-            self._t(p, x, r.y() + 82, w, 16, f"{cap(ram['livre'])} livres", self._f(11.5), TEXTO2)
+                    self._f(12), self.T2)
+            self._t(p, x, r.y() + 82, w, 16, f"{cap(ram['livre'])} livres", self._f(11.5), self.T2)
             return
-        self._pct_grande(p, r.right() - INT, r.y() + 10, self._v("ram"), CIANO)
-        self._barra(p, QRectF(x, r.y() + 70, w, 8), self._v("ram"), CIANO)
+        self._pct_grande(p, r.right() - INT, r.y() + 10, self._v("ram"), self.t.ram)
+        self._barra(p, QRectF(x, r.y() + 70, w, 8), self._v("ram"), self.t.ram)
 
     def _c_gpu(self, p: QPainter, r: QRectF, estatico: bool) -> None:
         gpu = self.d["gpu"]
         x, w = r.x() + INT, r.width() - 2 * INT
         if estatico:
-            self._rotulo(p, x, r.y() + 14, "GPU", VERDE, gpu["nome"])
+            self._rotulo(p, x, r.y() + 14, "GPU", self.t.gpu, gpu["nome"])
             partes = []
             if gpu["temp"] is not None:
                 partes.append(f"{gpu['temp']} °C")
@@ -636,15 +659,15 @@ class MonitorWidget(QWidget):
                 partes.append(f"{gpu['watts']:.0f} W")
             if gpu["clock_mhz"]:
                 partes.append(f"{num(gpu['clock_mhz'] / 1000, 2)} GHz")
-            self._t(p, x, r.y() + 33, w - 70, 16, "  ·  ".join(partes), self._f(11.5), TEXTO2)
+            self._t(p, x, r.y() + 33, w - 70, 16, "  ·  ".join(partes), self._f(11.5), self.T2)
             self._grade(p, QRectF(x, r.y() + 56, w, 38))
-            self._t(p, x, r.y() + 100, 100, 16, "VRAM", self._f(10.5, QFont.Weight.Bold, 1.2), TEXTO2)
+            self._t(p, x, r.y() + 100, 100, 16, "VRAM", self._f(10.5, QFont.Weight.Bold, 1.2), self.T2)
             self._t(p, x, r.y() + 100, w, 16, f"{cap(gpu['vram_usada'])} de {cap(gpu['vram_total'])}",
-                    self._f(11.5), TEXTO2, Qt.AlignRight)
+                    self._f(11.5), self.T2, Qt.AlignRight)
             return
-        self._pct_grande(p, r.right() - INT, r.y() + 10, self._v("gpu"), VERDE)
-        self._grafico(p, QRectF(x, r.y() + 56, w, 38), self.h_gpu, 100.0, VERDE)
-        self._barra(p, QRectF(x, r.y() + 120, w, 8), self._v("vram"), VERDE)
+        self._pct_grande(p, r.right() - INT, r.y() + 10, self._v("gpu"), self.t.gpu)
+        self._grafico(p, QRectF(x, r.y() + 56, w, 38), self.h_gpu, 100.0, self.t.gpu)
+        self._barra(p, QRectF(x, r.y() + 120, w, 8), self._v("vram"), self.t.gpu)
 
     def _c_rede(self, p: QPainter, r: QRectF, estatico: bool) -> None:
         rede = self.d["rede"]
@@ -655,59 +678,59 @@ class MonitorWidget(QWidget):
             if rede["link_bps"]:
                 v, u = taxa_bits(rede["link_bps"])
                 sub += f"  ·  {v} {u}"
-            self._rotulo(p, x, r.y() + 14, "REDE", AZUL, sub)
+            self._rotulo(p, x, r.y() + 14, "REDE", self.t.down, sub)
             metade = w / 2
             plano = float(self.cfg.get("plano_mbps", 700)) * 1e6
             for i, (chave, titulo, acento, seta) in enumerate(
-                    (("down", "Download", AZUL, "↓"), ("up", "Upload", ROSA, "↑"))):
+                    (("down", "Download", self.t.down, "↓"), ("up", "Upload", self.t.up, "↑"))):
                 cx = x + i * metade
                 bps = max(0.0, self._b(chave))
                 valor, unidade = taxa_bits(bps)
                 self._t(p, cx, r.y() + 34, metade, 14, f"{seta}  {titulo}",
                         self._f(11, QFont.Weight.Medium), cor(acento))
                 f = self._f(22, QFont.Weight.DemiBold)
-                self._t(p, cx, r.y() + 48, metade, 28, valor, f, TEXTO)
-                self._t(p, cx + self._larg(valor, f) + 5, r.y() + 55, 60, 20, unidade, self._f(12), TEXTO2)
+                self._t(p, cx, r.y() + 48, metade, 28, valor, f, self.T1)
+                self._t(p, cx + self._larg(valor, f) + 5, r.y() + 55, 60, 20, unidade, self._f(12), self.T2)
                 extra = taxa_bytes(bps / 8)
                 if chave == "down" and plano > 0:
                     extra += f"  ·  {bps * 100 / plano:.0f}% do plano"
-                self._t(p, cx, r.y() + 76, metade, 14, extra, self._f(11), TEXTO3)
+                self._t(p, cx, r.y() + 76, metade, 14, extra, self._f(11), self.T3)
             self._grade(p, g)
             return
         escala = max(10e6, self._v("escala_rede", 10e6))
-        self._grafico(p, g, self.h_down, escala, AZUL)
-        self._grafico(p, g, self.h_up, escala, ROSA, preencher=False, largura=1.5)
+        self._grafico(p, g, self.h_down, escala, self.t.down)
+        self._grafico(p, g, self.h_up, escala, self.t.up, preencher=False, largura=1.5)
 
     def _c_disco(self, p: QPainter, r: QRectF, estatico: bool) -> None:
         if not estatico:
             return
         x, w = r.x() + INT, r.width() - 2 * INT
-        self._rotulo(p, x, r.y() + 14, "ARMAZENAMENTO", AMBAR)
+        self._rotulo(p, x, r.y() + 14, "ARMAZENAMENTO", self.t.disco)
         y = r.y() + 38
         for dk in self.d["discos"]:
             letra = dk["letra"]
-            self._t(p, x, y, 40, 18, letra, self._f(13, QFont.Weight.DemiBold), TEXTO)
+            self._t(p, x, y, 40, 18, letra, self._f(13, QFont.Weight.DemiBold), self.T1)
             if dk["rotulo"]:
-                self._t(p, x + 28, y, 130, 18, dk["rotulo"], self._f(11), TEXTO3)
-            self._t(p, x, y, w, 18, f"{cap(dk['usado'])} de {cap(dk['total'])}", self._f(11.5), TEXTO2,
+                self._t(p, x + 28, y, 130, 18, dk["rotulo"], self._f(11), self.T3)
+            self._t(p, x, y, w, 18, f"{cap(dk['usado'])} de {cap(dk['total'])}", self._f(11.5), self.T2,
                     Qt.AlignRight)
-            self._barra(p, QRectF(x, y + 22, w, 6), self._b("d_" + letra), AMBAR)
-            self._t(p, x, y + 31, w, 14, f"{cap(dk['livre'])} livres", self._f(11), TEXTO2)
+            self._barra(p, QRectF(x, y + 22, w, 6), self._b("d_" + letra), self.t.disco)
+            self._t(p, x, y + 31, w, 14, f"{cap(dk['livre'])} livres", self._f(11), self.T2)
             ativ = f"Leitura {taxa_bytes(dk['leitura'])}  ·  Gravação {taxa_bytes(dk['escrita'])}"
-            self._t(p, x + 70, y + 31, w - 70, 14, ativ, self._f(11), TEXTO3, Qt.AlignRight)
+            self._t(p, x + 70, y + 31, w - 70, 14, ativ, self._f(11), self.T3, Qt.AlignRight)
             y += 54
 
     def _c_proc(self, p: QPainter, r: QRectF, estatico: bool) -> None:
         if not estatico:
             return
         x, w = r.x() + INT, r.width() - 2 * INT
-        self._rotulo(p, x, r.y() + 14, "MAIORES USOS DE RAM", NEUTRO)
+        self._rotulo(p, x, r.y() + 14, "MAIORES USOS DE RAM", self.t.neutro)
         y = r.y() + 38
         fonte = self._f(12, QFont.Weight.Medium)
         fm = QFontMetricsF(fonte)
         for i, (nome, qtd, bytes_) in enumerate(self.procs[:5]):
             rotulo = nome + (f"  ×{qtd}" if qtd > 1 else "")
-            self._t(p, x, y, w - 70, 16, fm.elidedText(rotulo, Qt.ElideRight, w - 80), fonte, TEXTO)
-            self._t(p, x, y, w, 16, cap(bytes_), self._f(12, QFont.Weight.DemiBold), TEXTO2, Qt.AlignRight)
-            self._barra(p, QRectF(x, y + 19, w, 3), self._b(f"p{i}"), NEUTRO, aquecer=False)
+            self._t(p, x, y, w - 70, 16, fm.elidedText(rotulo, Qt.ElideRight, w - 80), fonte, self.T1)
+            self._t(p, x, y, w, 16, cap(bytes_), self._f(12, QFont.Weight.DemiBold), self.T2, Qt.AlignRight)
+            self._barra(p, QRectF(x, y + 19, w, 3), self._b(f"p{i}"), self.t.neutro, aquecer=False)
             y += 26
