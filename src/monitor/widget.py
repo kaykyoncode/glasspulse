@@ -26,6 +26,7 @@ LARG_CARD = 352
 DURACAO = 0.7          # segundos de animação a cada amostra
 QUADRO_MS = 40         # 25 quadros/s só durante a animação; no resto o widget fica parado
 PONTOS = 62            # histórico (~1 min a 1 amostra/s)
+ALT_JOGO = 38          # botão Modo Jogo, logo abaixo do cabeçalho
 
 VIDROS = {"leve": 70, "medio": 108, "fosco": 178}
 TINTA_ACRILICO = {"leve": 0x1E, "medio": 0x2C, "fosco": 0x58}
@@ -147,6 +148,12 @@ class MonitorWidget(QWidget):
         self._cache: QPixmap | None = None     # camada estática: vidro, cartões e textos
         self._cache_dpr = 0.0
         self._cache_sujo = True                # refeita a cada amostra (1x/s), não a cada quadro
+        self.estado_jogo = {"ativo": False, "ocupado": "", "linha": ""}
+        self.ao_modo_jogo = None               # o app liga ao controle do Modo Jogo
+        self.r_jogo: QRectF | None = None
+        self._hover_jogo = False
+        self._apertou_jogo = False
+        self.setMouseTracking(True)
 
         self.anim = QTimer(self)
         self.anim.setTimerType(Qt.CoarseTimer)
@@ -187,11 +194,16 @@ class MonitorWidget(QWidget):
             alt["gpu"] = 0
         if not mostrar_proc:
             alt["proc"] = 0
+        painel = c["layout"] == "painel"
+        larg = MARGEM * 2 + (LARG_CARD * 2 + GAP if painel else LARG_CARD)
         topo = MARGEM + 54 + GAP
+        self.r_jogo = None
+        if c["mostrar_modo_jogo"]:
+            self.r_jogo = QRectF(MARGEM, MARGEM + 52, larg - 2 * MARGEM, ALT_JOGO)
+            topo = MARGEM + 52 + ALT_JOGO + GAP
         self.rects: dict[str, QRectF] = {}
-        if c["layout"] == "painel":
+        if painel:
             colunas = [["cpu", "ram", "disco"], ["gpu", "rede", "proc"]]
-            larg = MARGEM * 2 + LARG_CARD * 2 + GAP
             base = 0
             for i, col in enumerate(colunas):
                 y = topo
@@ -202,7 +214,6 @@ class MonitorWidget(QWidget):
                 base = max(base, y)
             altura = int(base - GAP + MARGEM)
         else:
-            larg = MARGEM * 2 + LARG_CARD
             y = topo
             for k in ("cpu", "ram", "gpu", "rede", "disco", "proc"):
                 if alt[k]:
@@ -309,6 +320,10 @@ class MonitorWidget(QWidget):
             self.show()
             winapi.enviar_para_o_fundo(self._hwnd)
             return True, 0
+        elif m == winapi.MSG_MODO_JOGO:
+            if self.ao_modo_jogo:
+                QTimer.singleShot(0, self.ao_modo_jogo)
+            return True, 0
         elif m == winapi.MSG_SAIR:
             pop = QApplication.activePopupWidget()   # menu aberto prende o laço de eventos
             if pop is not None:
@@ -364,7 +379,22 @@ class MonitorWidget(QWidget):
 
     # ------------------------------------------------------------------ mouse
 
+    def _no_botao_jogo(self, pos) -> bool:
+        return self.r_jogo is not None and self.r_jogo.contains(pos)
+
+    def _marcar_hover_jogo(self, dentro: bool) -> None:
+        if dentro != self._hover_jogo:
+            self._hover_jogo = dentro
+            if dentro:
+                self.setCursor(Qt.PointingHandCursor)
+            else:
+                self.unsetCursor()
+            self.pedir_completo()
+
     def mousePressEvent(self, ev) -> None:
+        if ev.button() == Qt.LeftButton and self._no_botao_jogo(ev.position()):
+            self._apertou_jogo = True
+            return
         if ev.button() == Qt.LeftButton and not self.cfg["travado"]:
             self._arrasto = ev.globalPosition() - QPointF(self.pos())
             self.setCursor(Qt.SizeAllCursor)
@@ -373,8 +403,18 @@ class MonitorWidget(QWidget):
         if self._arrasto is not None:
             p = ev.globalPosition() - self._arrasto
             self.move(int(p.x()), int(p.y()))
+        else:
+            self._marcar_hover_jogo(self._no_botao_jogo(ev.position()))
+
+    def leaveEvent(self, ev) -> None:
+        self._marcar_hover_jogo(False)
 
     def mouseReleaseEvent(self, ev) -> None:
+        if self._apertou_jogo:
+            self._apertou_jogo = False
+            if self._no_botao_jogo(ev.position()) and self.ao_modo_jogo:
+                self.ao_modo_jogo()
+            return
         if self._arrasto is not None:
             self._arrasto = None
             self.unsetCursor()
@@ -437,6 +477,7 @@ class MonitorWidget(QWidget):
         for r in self.rects.values():
             self._cartao(q, r)
         self._cabecalho(q)
+        self._botao_jogo(q)
         if self.d is not None:
             for chave, r in self.rects.items():
                 getattr(self, f"_c_{chave}")(q, r, True)
@@ -601,6 +642,69 @@ class MonitorWidget(QWidget):
         data = f"{SEMANA[agora.weekday()]}, {agora.day} {MESES[agora.month - 1]}"
         self._t(p, direita - 120, y + 26, 120, 16, data, self._f(11.5, QFont.Weight.Medium), self.T2,
                 Qt.AlignRight)
+
+    # ---- botão Modo Jogo
+
+    def _botao_jogo(self, p: QPainter) -> None:
+        r = self.r_jogo
+        if r is None:
+            return
+        ej, t = self.estado_jogo, self.t
+        ativo, ocupado, hover = ej["ativo"], ej["ocupado"], self._hover_jogo
+        raio = r.height() / 2
+        p.setPen(Qt.NoPen)
+        if ativo:
+            g = QLinearGradient(r.topLeft(), r.topRight())
+            g.setColorAt(0, cor(t.marca[1], 175 if hover else 150))
+            g.setColorAt(1, cor(t.marca[0], 120 if hover else 95))
+            p.setBrush(g)
+        else:
+            p.setBrush(cor(t.cartao, 30 if hover else 16))
+        p.drawRoundedRect(r, raio, raio)
+        p.setBrush(Qt.NoBrush)
+        borda = cor(t.marca[0], 200) if ativo else cor(t.cartao, 52 if hover else 26)
+        p.setPen(QPen(borda, 1))
+        p.drawRoundedRect(r.adjusted(0.5, 0.5, -0.5, -0.5), raio, raio)
+
+        icone = QColor(255, 255, 255, 245) if ativo else (mais_claro(QColor(t.marca[0]), 0.1) if hover else self.T1)
+        self._icone_controle(p, QRectF(r.x() + 15, r.center().y() - 7.5, 24, 15), icone)
+        x = r.x() + 50
+        larg_texto = r.width() - 50 - 62
+        self._t(p, x, r.y() + 4, larg_texto, 16, "MODO JOGO ATIVO" if ativo else "MODO JOGO",
+                self._f(10.5, QFont.Weight.Bold, 1.4), self.T1)
+        sub = ocupado or ej["linha"] or "Clique para fechar tudo e focar nos jogos"
+        fonte = self._f(11, QFont.Weight.Medium)
+        sub = QFontMetricsF(fonte).elidedText(sub, Qt.ElideRight, larg_texto)
+        self._t(p, x, r.y() + 19, larg_texto, 15, sub, fonte, self.T1 if ativo else self.T2)
+
+        # interruptor
+        s = QRectF(r.right() - 14 - 36, r.center().y() - 10, 36, 20)
+        p.setPen(Qt.NoPen)
+        p.setBrush(QColor(255, 255, 255, 235) if ativo else cor(t.cartao, 38))
+        p.drawRoundedRect(s, 10, 10)
+        if ocupado:
+            bola_x, bola = s.center().x(), self.T2
+        elif ativo:
+            bola_x, bola = s.right() - 10, QColor(t.marca[1])
+        else:
+            bola_x, bola = s.x() + 10, self.T2
+        p.setBrush(bola)
+        p.drawEllipse(QPointF(bola_x, s.center().y()), 7, 7)
+
+    def _icone_controle(self, p: QPainter, r: QRectF, c: QColor) -> None:
+        """Controle de videogame desenhado (sem depender de fonte de emoji)."""
+        corpo = QPainterPath()
+        corpo.addRoundedRect(r, r.height() * 0.48, r.height() * 0.48)
+        p.setPen(Qt.NoPen)
+        p.setBrush(c)
+        p.drawPath(corpo)
+        furo = cor(self.t.tinta)
+        p.setBrush(furo)
+        cx, cy = r.x() + r.width() * 0.29, r.center().y()
+        p.drawRoundedRect(QRectF(cx - 4, cy - 1.1, 8, 2.2), 1, 1)
+        p.drawRoundedRect(QRectF(cx - 1.1, cy - 4, 2.2, 8), 1, 1)
+        p.drawEllipse(QPointF(r.x() + r.width() * 0.68, cy - 1.9), 1.6, 1.6)
+        p.drawEllipse(QPointF(r.x() + r.width() * 0.80, cy + 1.9), 1.6, 1.6)
 
     # ---- cartões: cada um desenha a parte estática (texto, 1x/s) ou a dinâmica (todo quadro)
 

@@ -194,6 +194,8 @@ _APELIDOS = {
     "firefox": "Firefox", "discord": "Discord", "steam": "Steam", "whatsapp": "WhatsApp",
     "adobe premiere pro": "Premiere Pro", "afterfx": "After Effects", "blender": "Blender",
     "docker desktop": "Docker Desktop", "com.docker.backend": "Docker", "codex": "Codex",
+    "wallpaper64": "Wallpaper Engine", "wallpaper32": "Wallpaper Engine", "adb": "Android (adb)",
+    "applemobiledevicelauncher": "Apple Devices", "applemobiledeviceprocess": "Apple Devices",
 }
 
 
@@ -206,9 +208,40 @@ def nome_amigavel(exe: str) -> str:
     return base[:1].upper() + base[1:]
 
 
+def ram_privada(pid: int, pmc: _PMC2 | None = None) -> int:
+    """'Conjunto de trabalho privado' do processo, a mesma conta do Gerenciador de Tarefas (0 = sem acesso)."""
+    if pmc is None:
+        pmc = _PMC2()
+        pmc.cb = ctypes.sizeof(pmc)
+    h = _k32.OpenProcess(0x1000, False, pid)  # QUERY_LIMITED_INFORMATION
+    if not h:
+        return 0
+    try:
+        return (pmc.ws_privado or pmc.ws) if _k32.K32GetProcessMemoryInfo(h, ctypes.byref(pmc), pmc.cb) else 0
+    finally:
+        _k32.CloseHandle(h)
+
+
+def mapa_processos() -> dict[int, tuple[int, str]]:
+    """pid -> (pid do pai, nome do .exe), tudo numa única foto do Toolhelp."""
+    saida: dict[int, tuple[int, str]] = {}
+    snap = _k32.CreateToolhelp32Snapshot(0x2, 0)
+    if snap in (None, _INVALIDO):
+        return saida
+    pe = _PE32()
+    pe.dwSize = ctypes.sizeof(pe)
+    try:
+        ok = _k32.Process32FirstW(snap, ctypes.byref(pe))
+        while ok:
+            saida[pe.pid] = (pe.pai, pe.exe)
+            ok = _k32.Process32NextW(snap, ctypes.byref(pe))
+    finally:
+        _k32.CloseHandle(snap)
+    return saida
+
+
 def varrer_processos(limite: int = 5) -> list[tuple[str, int, int]]:
-    """Maiores consumidores de RAM agrupados por programa: (nome, qtd, bytes).
-    Usa o 'conjunto de trabalho privado', a mesma conta do Gerenciador de Tarefas."""
+    """Maiores consumidores de RAM agrupados por programa: (nome, qtd, bytes)."""
     grupos: dict[str, list[int]] = {}
     snap = _k32.CreateToolhelp32Snapshot(0x2, 0)
     if snap in (None, _INVALIDO):
@@ -221,13 +254,11 @@ def varrer_processos(limite: int = 5) -> list[tuple[str, int, int]]:
         ok = _k32.Process32FirstW(snap, ctypes.byref(pe))
         while ok:
             if pe.pid > 4:
-                h = _k32.OpenProcess(0x1000, False, pe.pid)  # QUERY_LIMITED_INFORMATION
-                if h:
-                    if _k32.K32GetProcessMemoryInfo(h, ctypes.byref(pmc), pmc.cb):
-                        g = grupos.setdefault(pe.exe.lower(), [0, 0, pe.exe])
-                        g[0] += 1
-                        g[1] += pmc.ws_privado or pmc.ws
-                    _k32.CloseHandle(h)
+                ram = ram_privada(pe.pid, pmc)
+                if ram:
+                    g = grupos.setdefault(pe.exe.lower(), [0, 0, pe.exe])
+                    g[0] += 1
+                    g[1] += ram
             ok = _k32.Process32NextW(snap, ctypes.byref(pe))
     finally:
         _k32.CloseHandle(snap)

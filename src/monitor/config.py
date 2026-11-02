@@ -25,6 +25,10 @@ PADRAO = {
     "mostrar_nucleos": True,
     "mostrar_processos": True,
     "plano_mbps": 0,            # velocidade contratada em Mb/s, para "% do plano" (0 = esconde)
+    "mostrar_modo_jogo": True,  # botão Modo Jogo abaixo do cabeçalho
+    "modo_jogo_confirmar": True,  # mostra a lista do que vai fechar antes de ativar
+    "modo_jogo_escolhas": {},   # app (minúsculo) -> fechar? — lembra o que foi marcado na lista
+    "modo_jogo_plano": "",      # GUID do plano "Desempenho Máximo" criado na primeira ativação
 }
 
 

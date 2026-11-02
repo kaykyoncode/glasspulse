@@ -23,6 +23,12 @@ def _registrar_erros() -> None:
 
 def main() -> int:
     _registrar_erros()
+    if "--modo-jogo-admin" in sys.argv:  # parte elevada do Modo Jogo (tarefa agendada / UAC), sem interface
+        from . import modo_jogo_admin
+        return modo_jogo_admin.main(sys.argv)
+    if "--modo-jogo-simular" in sys.argv:  # mostra o que o Modo Jogo faria, sem mexer em nada
+        from . import modo_jogo
+        return modo_jogo.simular()
     os.environ.setdefault("QT_LOGGING_RULES", "*.debug=false;qt.qpa.*=false")
 
     if "--aguardar" in sys.argv:         # reinício automático: espera a instância antiga soltar o mutex
@@ -33,7 +39,7 @@ def main() -> int:
         winapi.avisar_instancia(winapi.MSG_SAIR)
         return 0
     if ja_existe:
-        winapi.avisar_instancia(winapi.MSG_MOSTRAR)
+        winapi.avisar_instancia(winapi.MSG_MODO_JOGO if "--modo-jogo" in sys.argv else winapi.MSG_MOSTRAR)
         return 0
 
     import glob
@@ -43,7 +49,7 @@ def main() -> int:
     from PySide6.QtGui import QAction, QActionGroup, QFontDatabase, QGuiApplication
     from PySide6.QtWidgets import QApplication, QMenu, QSystemTrayIcon
 
-    from . import coletores, icone, temas
+    from . import coletores, icone, modo_jogo_ui, temas
     from .widget import MonitorWidget
 
     try:
@@ -107,6 +113,10 @@ def main() -> int:
 
     def preencher(m: QMenu) -> None:
         m.clear()
+        if controle.ocupado:
+            m.addAction(f"Modo Jogo: {controle.ocupado}").setEnabled(False)
+        else:
+            m.addAction("Desativar Modo Jogo" if controle.ativo else "Ativar Modo Jogo", controle.alternar)
         m.addAction("Ocultar widget" if janela.isVisible() else "Mostrar widget", alternar_visivel)
         m.addSeparator()
 
@@ -163,13 +173,18 @@ def main() -> int:
             sub.addAction(a)
         sub.addSeparator()
         for chave, rot in (("mostrar_nucleos", "Mostrar núcleos da CPU"),
-                           ("mostrar_processos", "Mostrar maiores usos de RAM")):
+                           ("mostrar_processos", "Mostrar maiores usos de RAM"),
+                           ("mostrar_modo_jogo", "Mostrar botão Modo Jogo")):
             a = sub.addAction(rot)
             a.setCheckable(True)
             a.setChecked(cfg[chave])
             a.triggered.connect(lambda v, c=chave: definir(c, bool(v), layout=True))
 
         m.addSeparator()
+        a = m.addAction("Modo Jogo: mostrar a lista antes de ativar")
+        a.setCheckable(True)
+        a.setChecked(cfg["modo_jogo_confirmar"])
+        a.triggered.connect(lambda v: definir("modo_jogo_confirmar", bool(v)))
         a = m.addAction("Iniciar com o Windows")
         a.setCheckable(True)
         a.setChecked(config.inicio_ativo())
@@ -204,6 +219,11 @@ def main() -> int:
         lambda r: alternar_visivel() if r == QSystemTrayIcon.ActivationReason.Trigger else None)
     bandeja.show()
 
+    controle = modo_jogo_ui.Controle(cfg, janela, bandeja)
+    controle.iniciar()
+    if "--modo-jogo" in sys.argv:
+        QTimer.singleShot(1500, controle.alternar)
+
     app.screenAdded.connect(lambda *_: QTimer.singleShot(800, janela.posicionar))
     app.screenRemoved.connect(lambda *_: QTimer.singleShot(800, janela.posicionar))
 
@@ -224,6 +244,7 @@ def main() -> int:
         estado["ticks"] += 1
         if reiniciar_se_janela_morreu():
             return
+        controle.tick(estado["ticks"])  # Modo Jogo: prioridade ao jogo em tela cheia
         if (janela.d is not None and not janela.teste_topo and janela.isVisible()
                 and winapi.coberto_por_janela(janela._hwnd)):
             if not estado["coberto"]:

@@ -161,3 +161,197 @@ def fixar_ao_desktop(hwnd: int) -> bool:
 
 def janela_viva(hwnd: int) -> bool:
     return bool(user32.IsWindow(wt.HWND(hwnd)))
+
+
+# ---- Modo Jogo: janelas dos apps, tela cheia, sessão e elevação ------------------------
+
+MSG_MODO_JOGO = WM_APP + 3
+WM_CLOSE = 0x0010
+GWL_STYLE = -16
+WS_CAPTION = 0x00C00000
+GW_OWNER = 4
+DWMWA_CLOAKED = 14
+
+WNDENUMPROC = ctypes.WINFUNCTYPE(wt.BOOL, wt.HWND, wt.LPARAM)
+user32.EnumWindows.argtypes = [WNDENUMPROC, wt.LPARAM]
+user32.EnumChildWindows.argtypes = [wt.HWND, WNDENUMPROC, wt.LPARAM]
+user32.GetWindowThreadProcessId.argtypes = [wt.HWND, ctypes.POINTER(wt.DWORD)]
+user32.IsWindowVisible.argtypes = [wt.HWND]
+user32.GetWindow.restype = wt.HWND
+user32.GetWindow.argtypes = [wt.HWND, wt.UINT]
+user32.GetWindowTextLengthW.argtypes = [wt.HWND]
+user32.IsZoomed.argtypes = [wt.HWND]
+user32.MonitorFromWindow.restype = wt.HANDLE
+user32.MonitorFromWindow.argtypes = [wt.HWND, wt.DWORD]
+dwmapi.DwmGetWindowAttribute.argtypes = [wt.HWND, wt.DWORD, ctypes.c_void_p, wt.DWORD]
+kernel32.OpenProcess.restype = wt.HANDLE
+kernel32.OpenProcess.argtypes = [wt.DWORD, wt.BOOL, wt.DWORD]
+kernel32.CloseHandle.argtypes = [wt.HANDLE]
+kernel32.ProcessIdToSessionId.argtypes = [wt.DWORD, ctypes.POINTER(wt.DWORD)]
+kernel32.WaitForSingleObject.argtypes = [wt.HANDLE, wt.DWORD]
+kernel32.GetApplicationUserModelId.argtypes = [wt.HANDLE, ctypes.POINTER(ctypes.c_uint32), wt.LPWSTR]
+shell32 = ctypes.WinDLL("shell32")
+version = ctypes.WinDLL("version")
+version.GetFileVersionInfoSizeW.argtypes = [wt.LPCWSTR, ctypes.POINTER(wt.DWORD)]
+version.GetFileVersionInfoW.argtypes = [wt.LPCWSTR, wt.DWORD, wt.DWORD, ctypes.c_void_p]
+version.VerQueryValueW.argtypes = [ctypes.c_void_p, wt.LPCWSTR, ctypes.POINTER(ctypes.c_void_p),
+                                   ctypes.POINTER(wt.UINT)]
+
+
+class _MONITORINFO(ctypes.Structure):
+    _fields_ = [("cbSize", wt.DWORD), ("rcMonitor", _RECT), ("rcWork", _RECT), ("dwFlags", wt.DWORD)]
+
+
+user32.GetMonitorInfoW.argtypes = [wt.HANDLE, ctypes.POINTER(_MONITORINFO)]
+
+
+def _pid_da_janela(hwnd) -> int:
+    pid = wt.DWORD()
+    user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+    return pid.value
+
+
+def _classe(hwnd) -> str:
+    nome = ctypes.create_unicode_buffer(64)
+    user32.GetClassNameW(hwnd, nome, 64)
+    return nome.value
+
+
+def janelas_por_processo() -> dict[int, list[tuple[int, str, bool]]]:
+    """pid -> [(hwnd, classe, principal)] das janelas de topo visíveis. 'principal' = janela de app
+    de verdade (sem dona, com título, não é janela de ferramenta). As janelas da Microsoft Store
+    contam para o processo do app, não para o ApplicationFrameHost que as emoldura."""
+    saida: dict[int, list[tuple[int, str, bool]]] = {}
+
+    def cada(hwnd, _):
+        if not user32.IsWindowVisible(hwnd):
+            return True
+        oculta = ctypes.c_int(0)
+        dwmapi.DwmGetWindowAttribute(wt.HWND(hwnd), DWMWA_CLOAKED, ctypes.byref(oculta), ctypes.sizeof(oculta))
+        if oculta.value:
+            return True
+        classe, pid = _classe(hwnd), _pid_da_janela(hwnd)
+        if classe == "ApplicationFrameWindow":
+            dentro = [0]
+
+            def filho(h, _):
+                if _classe(h) == "Windows.UI.Core.CoreWindow":
+                    dentro[0] = _pid_da_janela(h)
+                    return False
+                return True
+
+            user32.EnumChildWindows(hwnd, WNDENUMPROC(filho), 0)
+            pid = dentro[0] or pid
+        estilo = user32.GetWindowLongPtrW(wt.HWND(hwnd), GWL_EXSTYLE)
+        principal = (not user32.GetWindow(hwnd, GW_OWNER) and not estilo & WS_EX_TOOLWINDOW
+                     and (user32.GetWindowTextLengthW(hwnd) > 0 or classe == "ApplicationFrameWindow"))
+        saida.setdefault(pid, []).append((hwnd, classe, bool(principal)))
+        return True
+
+    user32.EnumWindows(WNDENUMPROC(cada), 0)
+    return saida
+
+
+def fechar_janela(hwnd: int) -> None:
+    """Pede para fechar como o X da janela (o app pode salvar ou perguntar)."""
+    user32.PostMessageW(wt.HWND(hwnd), WM_CLOSE, 0, 0)
+
+
+def pid_tela_cheia() -> int:
+    """PID da janela em primeiro plano quando ela cobre o monitor inteiro sem moldura (jogo em tela cheia
+    ou sem bordas). Janela maximizada com barra de título não conta (com a barra de tarefas oculta,
+    um navegador maximizado também cobre o monitor)."""
+    fg = user32.GetForegroundWindow()
+    if not fg or _classe(fg) in _CLASSES_SHELL or user32.IsZoomed(fg):
+        return 0
+    if user32.GetWindowLongPtrW(fg, GWL_STYLE) & WS_CAPTION == WS_CAPTION:
+        return 0
+    r = _RECT()
+    if not user32.GetWindowRect(fg, ctypes.byref(r)):
+        return 0
+    mi = _MONITORINFO()
+    mi.cbSize = ctypes.sizeof(mi)
+    if not user32.GetMonitorInfoW(user32.MonitorFromWindow(fg, 2), ctypes.byref(mi)):
+        return 0
+    m = mi.rcMonitor
+    if r.l <= m.l and r.t <= m.t and r.r >= m.r and r.b >= m.b:
+        return _pid_da_janela(fg)
+    return 0
+
+
+def sessao(pid: int) -> int:
+    s = wt.DWORD()
+    return s.value if kernel32.ProcessIdToSessionId(pid, ctypes.byref(s)) else -1
+
+
+def aumid(pid: int) -> str:
+    """Id do app da Microsoft Store/MSIX (para reabrir por shell:AppsFolder); vazio nos apps comuns."""
+    h = kernel32.OpenProcess(0x1000, False, pid)  # QUERY_LIMITED_INFORMATION
+    if not h:
+        return ""
+    try:
+        n = ctypes.c_uint32(512)
+        buf = ctypes.create_unicode_buffer(512)
+        return buf.value if kernel32.GetApplicationUserModelId(h, ctypes.byref(n), buf) == 0 else ""
+    finally:
+        kernel32.CloseHandle(h)
+
+
+def descricao_arquivo(caminho: str) -> str:
+    """'Descrição do arquivo' do executável (o nome que o Gerenciador de Tarefas mostra)."""
+    try:
+        n = version.GetFileVersionInfoSizeW(caminho, None)
+        if not n:
+            return ""
+        buf = ctypes.create_string_buffer(n)
+        if not version.GetFileVersionInfoW(caminho, 0, n, buf):
+            return ""
+        p, tam = ctypes.c_void_p(), wt.UINT()
+        idiomas = [(0x0409, 0x04B0), (0x0409, 0x04E4), (0x0416, 0x04E4), (0x0000, 0x04B0)]
+        if version.VerQueryValueW(buf, "\\VarFileInfo\\Translation", ctypes.byref(p), ctypes.byref(tam)) \
+                and tam.value >= 4:
+            par = ctypes.cast(p, ctypes.POINTER(ctypes.c_uint16))
+            idiomas.insert(0, (par[0], par[1]))
+        for idioma, pagina in idiomas:
+            chave = f"\\StringFileInfo\\{idioma:04x}{pagina:04x}\\FileDescription"
+            if version.VerQueryValueW(buf, chave, ctypes.byref(p), ctypes.byref(tam)) and tam.value > 1:
+                return ctypes.wstring_at(p.value, tam.value - 1).strip()
+    except OSError:
+        pass
+    return ""
+
+
+def sou_admin() -> bool:
+    return bool(shell32.IsUserAnAdmin())
+
+
+class _SHELLEXECUTEINFO(ctypes.Structure):
+    _fields_ = [("cbSize", wt.DWORD), ("fMask", ctypes.c_ulong), ("hwnd", wt.HWND),
+                ("lpVerb", wt.LPCWSTR), ("lpFile", wt.LPCWSTR), ("lpParameters", wt.LPCWSTR),
+                ("lpDirectory", wt.LPCWSTR), ("nShow", ctypes.c_int), ("hInstApp", wt.HINSTANCE),
+                ("lpIDList", ctypes.c_void_p), ("lpClass", wt.LPCWSTR), ("hkeyClass", wt.HKEY),
+                ("dwHotKey", wt.DWORD), ("hIconOrMonitor", wt.HANDLE), ("hProcess", wt.HANDLE)]
+
+
+shell32.ShellExecuteExW.argtypes = [ctypes.POINTER(_SHELLEXECUTEINFO)]
+
+
+def executar_como_admin(exe: str, parametros: str, pasta: str) -> int | None:
+    """Abre o processo elevado (o Windows mostra o UAC). Devolve o handle do processo, ou None se
+    a pessoa recusou ou não deu para abrir."""
+    info = _SHELLEXECUTEINFO()
+    info.cbSize = ctypes.sizeof(info)
+    info.fMask = 0x40 | 0x400            # SEE_MASK_NOCLOSEPROCESS | SEE_MASK_NOASYNC
+    info.lpVerb, info.lpFile, info.lpParameters, info.lpDirectory = "runas", exe, parametros, pasta
+    info.nShow = 0
+    if not shell32.ShellExecuteExW(ctypes.byref(info)) or not info.hProcess:
+        return None
+    return info.hProcess
+
+
+def processo_terminou(handle: int, espera_ms: int = 0) -> bool:
+    return kernel32.WaitForSingleObject(handle, espera_ms) == 0
+
+
+def fechar_handle(handle: int) -> None:
+    kernel32.CloseHandle(handle)

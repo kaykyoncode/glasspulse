@@ -110,9 +110,42 @@ Para abrir agora: dê dois cliques no atalho **Monitor do PC** ou rode `pythonw 
 | Ocultar / mostrar | clique esquerdo no ícone da bandeja |
 | Fechar | menu → **Sair** ou `pythonw monitor_pc.pyw --sair` |
 | Iniciar com o Windows | menu → *Iniciar com o Windows* |
+| Modo Jogo | botão logo abaixo do cabeçalho, menu → *Ativar Modo Jogo* ou `pythonw monitor_pc.pyw --modo-jogo` |
 
 Configuração em `%APPDATA%\MonitorPC\config.json` (a maior parte pelo menu, inclusive o tema). Um campo só existe no arquivo:
 `"plano_mbps"` — a velocidade contratada, em Mb/s, para o "% do plano" da rede (`0` esconde). Erros vão para `%APPDATA%\MonitorPC\erro.log`.
+
+## Modo Jogo
+
+Um clique fecha o que está aberto e deixa o PC só para o jogo; outro clique devolve tudo como estava.
+
+**Ao ativar**
+
+- Mostra a lista do que está aberto, um item por app, com a RAM de cada um. Marcado = vai fechar. Launchers
+  (Steam, Epic, Riot…) e jogos abertos vêm desmarcados. As escolhas ficam salvas, e dá para ativar direto
+  nas próximas vezes (menu → *Modo Jogo: mostrar a lista antes de ativar*).
+- Fecha como o X da janela. App que só some para a bandeja é encerrado; **app que pergunta se quer salvar
+  continua aberto** (e aparece no aviso).
+- Nunca fecha: Windows, drivers, áudio, NVIDIA/AMD/Intel, periféricos (G HUB, Options+, Razer, Corsair…),
+  antivírus, antitrapaça, nem os ajudantes deles. Só mexe no que é do seu usuário.
+- Pausa serviços em segundo plano: Windows Update, indexação, SysMain, telemetria, Otimização de Entrega,
+  spooler e atualizadores (lista em `src/monitor/modo_jogo_admin.py`).
+- Energia em **Desempenho Máximo** (criado na 1ª vez), Modo de Jogo do Windows e *Otimizações para jogos em
+  janela* ligados, memória em espera esvaziada e prioridade acima do normal para o jogo em tela cheia.
+- WSL / Docker, se marcados, são desligados (`wsl --shutdown`).
+- Apps abertos **depois** de ativar nunca são tocados.
+
+**Ao desativar:** os serviços voltam, o plano de energia e o registro voltam ao que eram, o jogo volta à
+prioridade normal e os apps fechados reabrem (os que tinham janela, os que abrem com o Windows e o papel de
+parede animado; scripts e terminais não).
+
+**Administrador:** na 1ª ativação o Windows pede permissão uma vez. O GlassPulse cria a tarefa agendada
+`\GlassPulse\Modo Jogo` (elevada) e daí em diante liga e desliga sem UAC. Para remover a tarefa, num terminal
+como administrador: `schtasks /Delete /TN "\GlassPulse\Modo Jogo" /F`.
+
+**Segurança:** o estado vai para `%APPDATA%\MonitorPC\modo_jogo\estado.json` antes de fechar qualquer coisa.
+Se o PC reiniciar com o Modo Jogo ligado, o widget devolve o plano de energia sozinho ao abrir (os serviços
+já voltam com o Windows). Para ver o que seria feito, sem fazer nada: `python monitor_pc.pyw --modo-jogo-simular`.
 
 ## Como funciona
 
@@ -121,7 +154,7 @@ Configuração em `%APPDATA%\MonitorPC\config.json` (a maior parte pelo menu, in
 - **Pintura em duas camadas:** fundo + textos são refeitos 1×/s num `QPixmap`; gráficos e barras são desenhados por cima a 25 fps só durante ~0,7 s após cada amostra. Repaint parcial foi descartado: janelas translúcidas com acrílico deixam retângulos escuros.
 - **Robustez:** instância única (mutex), watchdog que se relança se o Explorer reiniciar, `--sair` fecha a instância em execução.
 
-Estrutura: `monitor_pc.pyw` (entrada) · `src/monitor/` (`coletores.py`, `widget.py`, `temas.py`, `winapi.py`, `app.py`, `config.py`, `icone.py`) · `temas/` · `assets/` · `fontes/` · `ferramentas/gerar_icone.py` · `instalar.ps1`.
+Estrutura: `monitor_pc.pyw` (entrada) · `src/monitor/` (`coletores.py`, `widget.py`, `temas.py`, `winapi.py`, `app.py`, `config.py`, `icone.py`, `modo_jogo.py`, `modo_jogo_admin.py`, `modo_jogo_ui.py`) · `temas/` · `assets/` · `fontes/` · `ferramentas/gerar_icone.py` · `instalar.ps1`.
 
 ## Limitações e ideias
 
