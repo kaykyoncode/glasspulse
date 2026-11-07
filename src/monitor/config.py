@@ -19,9 +19,9 @@ PADRAO = {
     "x_rel": 0,                 # posição livre, relativa ao canto do monitor
     "y_rel": 0,
     "travado": False,
-    "tema": "padrao",           # id do tema (arquivo em temas/ ou %APPDATA%\\MonitorPC\\temas)
-    "vidro": "medio",           # leve | medio | fosco
-    "layout": "coluna",         # coluna | painel
+    "fixado": True,             # alfinete: sempre por cima das janelas (False = fica na área de trabalho)
+    "tema": "padrao",           # só escolhe a arte do ícone da bandeja (temas/ ou %APPDATA%\\MonitorPC\\temas)
+    "layout": "coluna",         # coluna | painel (se não couber no monitor, usa o outro sozinho)
     "mostrar_nucleos": True,
     "mostrar_processos": True,
     "plano_mbps": 0,            # velocidade contratada em Mb/s, para "% do plano" (0 = esconde)

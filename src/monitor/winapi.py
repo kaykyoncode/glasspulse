@@ -78,17 +78,23 @@ def enviar_para_o_fundo(hwnd: int) -> None:
 
 
 def trazer_ao_topo(hwnd: int) -> None:
-    """Só para testes (--teste-topo): põe a janela acima das outras para capturar a tela."""
+    """Fixado: sempre por cima das outras janelas (HWND_TOPMOST), sem roubar o foco."""
     user32.SetWindowPos(wt.HWND(hwnd), wt.HWND(-1), 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE)
 
 
-def aplicar_vidro(hwnd: int, tinta_rgba: tuple[int, int, int, int]) -> None:
-    """Acrílico do Windows 11 (desfoque do que está atrás) com cantos redondos do DWM."""
+def tirar_do_topo(hwnd: int) -> None:
+    """Desfaz o 'sempre por cima' (HWND_NOTOPMOST)."""
+    user32.SetWindowPos(wt.HWND(hwnd), wt.HWND(-2), 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE)
+
+
+def preparar_transparente(hwnd: int) -> None:
+    """Janela transparente pura: sem cantos arredondados, borda, sombra ou animação do DWM.
+    O formato (cards em pasta) é todo desenhado por nós; o que é transparente não pega clique."""
     _dwm_attr(hwnd, 20, 1)            # DWMWA_USE_IMMERSIVE_DARK_MODE
-    _dwm_attr(hwnd, 33, 2)            # DWMWA_WINDOW_CORNER_PREFERENCE = DWMWCP_ROUND
-    _dwm_attr(hwnd, 34, 0xFFFFFFFE)   # DWMWA_BORDER_COLOR = sem borda (desenhamos a nossa)
-    r, g, b, a = tinta_rgba
-    acento = _ACCENT(4, 0, (a << 24) | (b << 16) | (g << 8) | r, 0)  # ACRYLICBLURBEHIND, ABGR
+    _dwm_attr(hwnd, 33, 1)            # DWMWA_WINDOW_CORNER_PREFERENCE = DWMWCP_DONOTROUND
+    _dwm_attr(hwnd, 34, 0xFFFFFFFE)   # DWMWA_BORDER_COLOR = DWMWA_COLOR_NONE
+    _dwm_attr(hwnd, 3, 1)             # DWMWA_TRANSITIONS_FORCEDISABLED
+    acento = _ACCENT(0, 0, 0, 0)      # ACCENT_DISABLED: desliga o acrílico da versão antiga
     dados = _WCAD(19, ctypes.cast(ctypes.pointer(acento), ctypes.c_void_p), ctypes.sizeof(acento))
     user32.SetWindowCompositionAttribute(wt.HWND(hwnd), ctypes.byref(dados))
 
@@ -157,6 +163,11 @@ def fixar_ao_desktop(hwnd: int) -> bool:
         return False
     user32.SetWindowLongPtrW(wt.HWND(hwnd), GWLP_HWNDPARENT, prog)
     return True
+
+
+def soltar_do_desktop(hwnd: int) -> None:
+    """Desfaz o fixar_ao_desktop (fixado por cima, o widget não tem dono)."""
+    user32.SetWindowLongPtrW(wt.HWND(hwnd), GWLP_HWNDPARENT, 0)
 
 
 def janela_viva(hwnd: int) -> bool:
@@ -257,10 +268,8 @@ def fechar_janela(hwnd: int) -> None:
     user32.PostMessageW(wt.HWND(hwnd), WM_CLOSE, 0, 0)
 
 
-def pid_tela_cheia() -> int:
-    """PID da janela em primeiro plano quando ela cobre o monitor inteiro sem moldura (jogo em tela cheia
-    ou sem bordas). Janela maximizada com barra de título não conta (com a barra de tarefas oculta,
-    um navegador maximizado também cobre o monitor)."""
+def _janela_tela_cheia() -> int:
+    """HWND da janela em primeiro plano quando ela cobre o monitor inteiro sem moldura; 0 se não."""
     fg = user32.GetForegroundWindow()
     if not fg or _classe(fg) in _CLASSES_SHELL or user32.IsZoomed(fg):
         return 0
@@ -275,8 +284,24 @@ def pid_tela_cheia() -> int:
         return 0
     m = mi.rcMonitor
     if r.l <= m.l and r.t <= m.t and r.r >= m.r and r.b >= m.b:
-        return _pid_da_janela(fg)
+        return fg
     return 0
+
+
+def pid_tela_cheia() -> int:
+    """PID da janela em primeiro plano quando ela cobre o monitor inteiro sem moldura (jogo em tela cheia
+    ou sem bordas). Janela maximizada com barra de título não conta (com a barra de tarefas oculta,
+    um navegador maximizado também cobre o monitor)."""
+    fg = _janela_tela_cheia()
+    return _pid_da_janela(fg) if fg else 0
+
+
+def tela_cheia_no_monitor_de(hwnd: int) -> bool:
+    """True se há um jogo/app em tela cheia em primeiro plano no mesmo monitor do widget."""
+    fg = _janela_tela_cheia()
+    if not fg or fg == hwnd:
+        return False
+    return user32.MonitorFromWindow(fg, 2) == user32.MonitorFromWindow(wt.HWND(hwnd), 2)
 
 
 def sessao(pid: int) -> int:

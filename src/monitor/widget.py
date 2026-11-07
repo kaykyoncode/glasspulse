@@ -1,44 +1,89 @@
 # -*- coding: utf-8 -*-
-"""Janela do widget: vidro acrílico, cantos redondos, gráficos e barras animados."""
+"""Janela do widget no padrão dos widgets do Thiago: cards pretos em formato de pasta, números finos e
+condensados, um único painel neon (amarelo) e gráficos/barras animados a cada amostra."""
 from __future__ import annotations
 
-import ctypes
-import os
+import math
 import time
 from collections import deque
 from ctypes import wintypes as wt
 from datetime import datetime
 
-from PySide6.QtCore import QPointF, QRectF, Qt, QTimer
-from PySide6.QtGui import (QColor, QFont, QFontMetricsF, QGuiApplication, QLinearGradient,
-                           QPainter, QPainterPath, QPen, QPixmap, QRadialGradient)
+from PySide6.QtCore import QByteArray, QPoint, QPointF, QRectF, Qt, QTimer
+from PySide6.QtGui import (QColor, QCursor, QFont, QFontDatabase, QFontMetricsF, QGuiApplication, QImage,
+                           QLinearGradient, QPainter, QPainterPath, QPen, QPixmap, QRadialGradient)
+from PySide6.QtSvg import QSvgRenderer
 from PySide6.QtWidgets import QApplication, QWidget
 
 from . import temas, winapi
 
-# ---- medidas (as cores vêm do tema ativo: temas.py)
-RAIO_JANELA = 8        # o DWM arredonda com 8 px; desenhamos igual
-RAIO_CARD = 12
-MARGEM = 14
-GAP = 10
-INT = 14               # respiro interno dos cartões
-LARG_CARD = 352
-DURACAO = 0.7          # segundos de animação a cada amostra
-QUADRO_MS = 40         # 25 quadros/s só durante a animação; no resto o widget fica parado
-PONTOS = 62            # histórico (~1 min a 1 amostra/s)
-ALT_JOGO = 38          # botão Modo Jogo, logo abaixo do cabeçalho
+# ---- cores do guia (docs/estilo-widgets.md do Luna Token Monitor)
+NEON = QColor("#ffe83a")          # Monitor do PC: amarelo (como o card "Nvidia" da referência)
+TINTA = QColor("#0b0b0c")         # texto e traços por cima do neon
+T1, T2, T3 = QColor("#f1f1f2"), QColor("#a3a3aa"), QColor("#6c6c74")
+FIO = QColor(255, 255, 255, 18)   # linhas divisórias (.07)
 
-VIDROS = {"leve": 70, "medio": 108, "fosco": 178}
-TINTA_ACRILICO = {"leve": 0x1E, "medio": 0x2C, "fosco": 0x58}
+# ---- medidas (px lógicos)
+LARG = 352                        # largura de cada card
+PX, PT, PB = 22, 30, 18           # respiro interno: lados, topo, base
+CONTEUDO = LARG - 2 * PX
+BORDA = 3                         # a janela termina 3 px depois dos cards (cabe o "•••", nada além)
+GAP = 12
+RAIO, DEGRAU, RECORTE, CURVA = 22, 18, 104, 15
+DURACAO = 0.7                     # segundos de animação a cada amostra
+QUADRO_MS = 40                    # 25 quadros/s só durante a animação; no resto o widget fica parado
+PONTOS = 62                       # histórico (~1 min a 1 amostra/s)
 
 SEMANA = ["seg", "ter", "qua", "qui", "sex", "sáb", "dom"]
 MESES = ["jan", "fev", "mar", "abr", "mai", "jun", "jul", "ago", "set", "out", "nov", "dez"]
 
+# Ícones em traço (viewBox 24), desenhados como SVG na cor pedida. {c} = cor.
+SVG = {
+    "pulso": '<path d="M2.5 12.5h4l2.6-6.5 4.2 12.5 2.7-6h5.5"/>',
+    "gpu": ('<rect x="2.5" y="6.5" width="19" height="11" rx="2"/><circle cx="9.5" cy="12" r="2.6"/>'
+            '<path d="M15 10.2h3.5M15 13.8h3.5M6 17.5V20M10 17.5V20"/>'),
+    "rede": '<path d="M8 4v15M4.5 15.5 8 19l3.5-3.5"/><path d="M16 20V5M12.5 8.5 16 5l3.5 3.5"/>',
+    "disco": ('<ellipse cx="12" cy="6" rx="8" ry="3"/><path d="M4 6v12c0 1.66 3.58 3 8 3s8-1.34 8-3V6"/>'
+              '<path d="M4 12c0 1.66 3.58 3 8 3s8-1.34 8-3"/>'),
+    "fixar": '<path d="M9 4h6l-1 6 3 3v2H7v-2l3-3-1-6z"/><path d="M12 15v6"/>',
+    "fixado": '<path d="M9 4h6l-1 6 3 3v2H7v-2l3-3-1-6z" fill="{c}"/><path d="M12 15v6"/>',
+    "baixar": '<path d="M12 4v15M6 13l6 6 6-6"/>',
+    "subir": '<path d="M12 20V5M6 11l6-6 6 6"/>',
+    "plano": '<path d="M4.5 17.5a8.5 8.5 0 1 1 15 0"/><path d="m12 13 4-4.5"/>',
+    "link": ('<path d="M10 14a4 4 0 0 0 5.66 0l3-3a4 4 0 0 0-5.66-5.66l-1 1"/>'
+             '<path d="M14 10a4 4 0 0 0-5.66 0l-3 3a4 4 0 0 0 5.66 5.66l1-1"/>'),
+    "vram": ('<rect x="4" y="7" width="16" height="10" rx="1.5"/>'
+             '<path d="M8 7V4.5M12 7V4.5M16 7V4.5M8 19.5V17M12 19.5V17M16 19.5V17"/>'),
+    "temp": '<path d="M14 14.76V5a2 2 0 0 0-4 0v9.76a4 4 0 1 0 4 0z"/>',
+    "energia": '<path d="M13 3 5 13.5h6L10 21l8-10.5h-6z"/>',
+    "jogo": ('<path d="M7 8h10a4 4 0 0 1 4 4.4l-.6 3.5a2.4 2.4 0 0 1-4.1 1.2L14.5 15h-5l-1.8 2.1a2.4 2.4 0 0 '
+             '1-4.1-1.2L3 12.4A4 4 0 0 1 7 8z"/><path d="M8 10.5v3.5M6.25 12.25h3.5"/>'
+             '<circle cx="15.6" cy="11.4" r="1" fill="{c}" stroke="none"/>'
+             '<circle cx="17.6" cy="13.4" r="1" fill="{c}" stroke="none"/>'),
+}
 
-def cor(h: str, a: int = 255) -> QColor:
-    c = QColor(h)
-    c.setAlpha(a)
-    return c
+BARLOW = {300: "Barlow Semi Condensed Light", 400: "Barlow Semi Condensed", 500: "Barlow Semi Condensed Medium"}
+BAHNSCHRIFT = {300: "Light SemiCondensed", 400: "SemiLight SemiCondensed", 500: "SemiCondensed"}
+
+
+class _Paleta:
+    """Cores do diálogo do Modo Jogo no mesmo padrão do widget."""
+    tinta = "#111113"
+    texto = "#F1F1F2"
+    cartao = "#FFFFFF"
+    medio = "#FFE83A"
+    marca = ["#FFE83A", "#FFE83A"]
+    texto_botao = "#0B0B0C"
+
+
+PALETA_DIALOGO = _Paleta()
+
+
+def cor(c: QColor | str, a: float) -> QColor:
+    """Cor com opacidade a (0..1)."""
+    q = QColor(c)
+    q.setAlphaF(max(0.0, min(1.0, a)))
+    return q
 
 
 def misturar(a: QColor, b: QColor, t: float) -> QColor:
@@ -47,38 +92,32 @@ def misturar(a: QColor, b: QColor, t: float) -> QColor:
                   int(a.blue() + (b.blue() - a.blue()) * t), int(a.alpha() + (b.alpha() - a.alpha()) * t))
 
 
-def calor(base: str | QColor, pct: float, t) -> QColor:
-    """Acento normal até ~72%; muda para a cor 'médio' e depois 'crítico' do tema conforme o uso aperta."""
-    c = QColor(base)
-    medio, critico = QColor(t.medio), QColor(t.critico)
-    if pct < 72:
-        return c
-    if pct < 78:
-        return misturar(c, medio, (pct - 72) / 6)
-    if pct < 88:
-        return medio
-    if pct < 94:
-        return misturar(medio, critico, (pct - 88) / 6)
-    return critico
-
-
-def mais_claro(c: QColor, t: float = 0.28) -> QColor:
-    return misturar(c, QColor(255, 255, 255), t)
-
-
 def suave(t: float) -> float:
     return 1 - (1 - t) ** 3
+
+
+CINZA_BARRA = QColor("#7d7d86")
+
+
+def cor_carga(frac: float) -> QColor:
+    """Barras ficam cinza no uso normal e só acendem no neon quando apertam (80% → 95%)."""
+    return misturar(CINZA_BARRA, NEON, (frac - 0.8) / 0.15) if frac > 0.8 else CINZA_BARRA
 
 
 def num(v: float, casas: int = 1) -> str:
     return f"{v:.{casas}f}".replace(".", ",")
 
 
-def cap(b: float) -> str:
+def cap_partes(b: float) -> tuple[str, str]:
     g = b / 1024 ** 3
     if g >= 1000:
-        return num(g / 1024, 2) + " TB"
-    return (num(g, 0) if g >= 100 else num(g, 1)) + " GB"
+        return num(g / 1024, 2), "TB"
+    return (num(g, 0) if g >= 100 else num(g, 1)), "GB"
+
+
+def cap(b: float) -> str:
+    v, u = cap_partes(b)
+    return f"{v} {u}"
 
 
 def taxa_bits(bps: float) -> tuple[str, str]:
@@ -105,6 +144,32 @@ def duracao(seg: float) -> str:
     return f"{d} d {h:02d} h" if d else f"{h} h {m:02d} min"
 
 
+def retangulo(r: QRectF, raio: float) -> QPainterPath:
+    p = QPainterPath()
+    p.addRoundedRect(r, raio, raio)
+    return p
+
+
+def caminho_pasta(r: QRectF) -> QPainterPath:
+    """Contorno do card em formato de pasta: aba alta à esquerda, recorte mais baixo à direita."""
+    x, y, w, h = r.x(), r.y(), r.width(), r.height()
+    rr, d, c = RAIO, DEGRAU, CURVA
+    aba = w - RECORTE
+    p = QPainterPath(QPointF(x + rr, y))
+    p.lineTo(x + aba - c, y)
+    p.cubicTo(x + aba, y, x + aba, y + d, x + aba + c, y + d)
+    p.lineTo(x + w - rr, y + d)
+    p.arcTo(QRectF(x + w - 2 * rr, y + d, 2 * rr, 2 * rr), 90, -90)
+    p.lineTo(x + w, y + h - rr)
+    p.arcTo(QRectF(x + w - 2 * rr, y + h - 2 * rr, 2 * rr, 2 * rr), 0, -90)
+    p.lineTo(x + rr, y + h)
+    p.arcTo(QRectF(x, y + h - 2 * rr, 2 * rr, 2 * rr), 270, -90)
+    p.lineTo(x, y + rr)
+    p.arcTo(QRectF(x, y, 2 * rr, 2 * rr), 180, -90)
+    p.closeSubpath()
+    return p
+
+
 class Tween:
     __slots__ = ("a", "b", "v")
 
@@ -118,10 +183,57 @@ class Tween:
         self.v = self.a + (self.b - self.a) * e
 
 
+class Fontes:
+    """Números em Barlow Semi Condensed (Bahnschrift SemiCondensed se faltar); interface em Inter."""
+
+    def __init__(self) -> None:
+        fams = set(QFontDatabase.families())
+        self.barlow = all(f in fams for f in BARLOW.values())
+        self._cache: dict[tuple, QFont] = {}
+        self._fm: dict[tuple, QFontMetricsF] = {}
+
+    def _base(self, f: QFont, px: float, espaco: float) -> QFont:
+        f.setPointSizeF(px * 0.75)
+        f.setKerning(True)
+        f.setFeature(QFont.Tag("tnum"), 1)
+        if espaco:
+            f.setLetterSpacing(QFont.AbsoluteSpacing, espaco)
+        return f
+
+    def num(self, px: float, peso: int = 300, espaco_em: float = 0.0) -> QFont:
+        chave = ("n", px, peso, espaco_em)
+        f = self._cache.get(chave)
+        if f is None:
+            if self.barlow:
+                f = QFont(BARLOW[peso])
+            else:
+                f = QFont("Bahnschrift")
+                f.setStyleName(BAHNSCHRIFT[peso])
+            f.setHintingPreference(QFont.PreferNoHinting)
+            f = self._cache[chave] = self._base(f, px, espaco_em * px)
+        return f
+
+    def ui(self, px: float, peso: int = 400, espaco_em: float = 0.0) -> QFont:
+        chave = ("u", px, peso, espaco_em)
+        f = self._cache.get(chave)
+        if f is None:
+            f = QFont("Inter")
+            f.setWeight(QFont.Weight(peso))
+            f.setHintingPreference(QFont.PreferVerticalHinting)
+            f = self._cache[chave] = self._base(f, px, espaco_em * px)
+        return f
+
+    def medidas(self, f: QFont) -> QFontMetricsF:
+        chave = (f.family(), f.styleName(), f.pointSizeF(), f.weight(), f.letterSpacing())
+        m = self._fm.get(chave)
+        if m is None:
+            m = self._fm[chave] = QFontMetricsF(f)
+        return m
+
+
 class MonitorWidget(QWidget):
     def __init__(self, cfg, coletor, processos, criar_menu) -> None:
-        flags = (Qt.FramelessWindowHint | Qt.Tool | Qt.WindowStaysOnBottomHint
-                 | Qt.WindowDoesNotAcceptFocus | Qt.NoDropShadowWindowHint)
+        flags = Qt.FramelessWindowHint | Qt.Tool | Qt.WindowDoesNotAcceptFocus | Qt.NoDropShadowWindowHint
         super().__init__(None, flags)
         self.cfg, self.coletor, self.processos, self.criar_menu = cfg, coletor, processos, criar_menu
         self.setWindowTitle(winapi.TITULO_JANELA)
@@ -129,8 +241,10 @@ class MonitorWidget(QWidget):
         self.setAttribute(Qt.WA_ShowWithoutActivating)
         self.setAttribute(Qt.WA_MacShowFocusRect, False)
 
-        self.t = temas.obter(cfg.get("tema"))
-        self._cores_do_tema()
+        self.t = temas.obter(cfg.get("tema"))    # só define a arte do ícone da bandeja
+        self.paleta = PALETA_DIALOGO
+        self.fontes = Fontes()
+        self._svgs: dict[tuple, QSvgRenderer] = {}
         self.d: dict | None = None
         self.procs: list = []
         self.tw: dict[str, Tween] = {}
@@ -138,21 +252,26 @@ class MonitorWidget(QWidget):
         self.h_gpu = deque([0.0] * PONTOS, maxlen=PONTOS)
         self.h_down = deque([0.0] * PONTOS, maxlen=PONTOS)
         self.h_up = deque([0.0] * PONTOS, maxlen=PONTOS)
-        self.pico_rede = 0.0
+        self.amostras = 0
         self.t0 = 0.0
         self.e = 1.0
-        self._fontes: dict[tuple, QFont] = {}
-        self._arrasto: QPointF | None = None
+        self._arrasto: QPoint | None = None
+        self._apertado: str | None = None
+        self._hover: str | None = None
         self._hwnd = 0
-        self.teste_topo = False
-        self._cache: QPixmap | None = None     # camada estática: vidro, cartões e textos
+        self.teste_topo = False                # --teste-topo: sempre por cima, sem salvar nada
+        self.suspenso = False                  # jogo em tela cheia no mesmo monitor: sai de cima dele
+        self.no_topo = False
+        self._aviso: tuple[str, float] | None = None
+        self._fundo: QPixmap | None = None     # cards, logos e painel neon (muda só com layout/escala)
+        self._cache: QPixmap | None = None     # fundo + textos (refeito a cada amostra)
         self._cache_dpr = 0.0
-        self._cache_sujo = True                # refeita a cada amostra (1x/s), não a cada quadro
+        self._cache_sujo = True
         self.estado_jogo = {"ativo": False, "ocupado": "", "linha": ""}
         self.ao_modo_jogo = None               # o app liga ao controle do Modo Jogo
-        self.r_jogo: QRectF | None = None
-        self._hover_jogo = False
-        self._apertou_jogo = False
+        self.L: dict[str, QRectF] = {}
+        self.cartoes: dict[str, QRectF] = {}
+        self.layout_efetivo = cfg["layout"]
         self.setMouseTracking(True)
 
         self.anim = QTimer(self)
@@ -160,68 +279,128 @@ class MonitorWidget(QWidget):
         self.anim.setInterval(QUADRO_MS)
         self.anim.timeout.connect(self._quadro)
 
+        # Movimento que não veio do arraste (Windows, troca de monitor/escala): confere logo depois.
+        self._vigia = QTimer(self)
+        self._vigia.setSingleShot(True)
+        self._vigia.setInterval(600)
+        self._vigia.timeout.connect(self.garantir_visivel)
+
         self.recalcular_layout()
-
-    # ------------------------------------------------------------------ tema
-
-    def _cores_do_tema(self) -> None:
-        for nome, alfa in (("T1", 240), ("T2", 158), ("T3", 98)):
-            setattr(self, nome, cor(self.t.texto, alfa))
-        arte = self.t.caminho_icone()
-        self._arte = QPixmap(arte) if arte and os.path.exists(arte) else None
-        self._arte_cache: dict[float, QPixmap] = {}
-
-    def definir_tema(self, tema) -> None:
-        self.t = tema
-        self._cores_do_tema()
-        self.aplicar_vidro()                  # refaz o acrílico com a tinta nova e a camada estática
 
     # ------------------------------------------------------------------ layout
 
-    def recalcular_layout(self) -> None:
+    def _montar_sis(self, x: float, y: float, L: dict) -> float:
         c = self.cfg
-        n_discos = max(1, len(self.d["discos"])) if self.d else 2
-        mostrar_nuc, mostrar_proc = c["mostrar_nucleos"], c["mostrar_processos"]
-        alt = {
-            "cpu": 152 if mostrar_nuc else 114,
-            "ram": 106,
-            "gpu": 140,
-            "rede": 148,
-            "disco": 38 + 54 * n_discos + 2,
-            "proc": 36 + 26 * 5 + 4,
-        }
-        if not self.coletor.nvml:
-            alt["gpu"] = 0
-        if not mostrar_proc:
-            alt["proc"] = 0
-        painel = c["layout"] == "painel"
-        larg = MARGEM * 2 + (LARG_CARD * 2 + GAP if painel else LARG_CARD)
-        topo = MARGEM + 54 + GAP
-        self.r_jogo = None
+        cx, yy = x + PX, y + PT
+        L["sis.cab"] = QRectF(cx, yy, CONTEUDO, 38)
+        L["sis.pin"] = QRectF(x + LARG - PX - 30, yy, 30, 30)
+        yy += 38 + 14
+        L["sis.heroi"] = QRectF(cx, yy, CONTEUDO, 86)
+        yy += 86
+        if c["mostrar_nucleos"]:
+            yy += 14
+            L["sis.nucleos"] = QRectF(cx, yy, CONTEUDO, 24)
+            yy += 24
+        yy += 18
+        L["sis.mem_cab"] = QRectF(cx, yy, CONTEUDO, 13)
+        yy += 13 + 7
+        L["sis.neon"] = QRectF(cx, yy, CONTEUDO, 80)
+        yy += 80
+        if c["mostrar_processos"]:
+            yy += 20
+            L["sis.proc_cab"] = QRectF(cx, yy, CONTEUDO, 13)
+            yy += 13 + 4
+            L["sis.procs"] = QRectF(cx, yy, CONTEUDO, 5 * 25)
+            yy += 5 * 25
         if c["mostrar_modo_jogo"]:
-            self.r_jogo = QRectF(MARGEM, MARGEM + 52, larg - 2 * MARGEM, ALT_JOGO)
-            topo = MARGEM + 52 + ALT_JOGO + GAP
-        self.rects: dict[str, QRectF] = {}
-        if painel:
-            colunas = [["cpu", "ram", "disco"], ["gpu", "rede", "proc"]]
-            base = 0
+            yy += 16
+            L["sis.jogo"] = QRectF(cx, yy, CONTEUDO, 42)
+            yy += 42
+        yy += 14
+        L["sis.nota"] = QRectF(cx, yy, CONTEUDO, 23)
+        yy += 23 + PB
+        return yy - y
+
+    def _montar_gpu(self, x: float, y: float, L: dict) -> float:
+        cx, yy = x + PX, y + PT
+        L["gpu.cab"] = QRectF(cx, yy, CONTEUDO, 38)
+        yy += 38 + 14
+        L["gpu.heroi"] = QRectF(cx, yy, CONTEUDO, 86)
+        yy += 86 + 20
+        L["gpu.stats"] = QRectF(cx, yy, CONTEUDO, 70)
+        yy += 70 + PB
+        return yy - y
+
+    def _montar_rede(self, x: float, y: float, L: dict) -> float:
+        cx, yy = x + PX, y + PT
+        L["rede.cab"] = QRectF(cx, yy, CONTEUDO, 38)
+        yy += 38 + 18
+        L["rede.stats"] = QRectF(cx, yy, CONTEUDO, 70)
+        yy += 70 + 14
+        L["rede.graf"] = QRectF(cx, yy, CONTEUDO, 44)
+        yy += 44 + PB
+        return yy - y
+
+    def _montar_disco(self, x: float, y: float, L: dict) -> float:
+        cx, yy = x + PX, y + PT
+        L["disco.cab"] = QRectF(cx, yy, CONTEUDO, 38)
+        yy += 38 + 18
+        n = max(1, len(self.d["discos"])) if self.d else 2
+        for i in range(n):
+            if i:
+                yy += 16
+            L[f"disco.{i}"] = QRectF(cx, yy, CONTEUDO, 46)
+            yy += 46
+        yy += PB
+        return yy - y
+
+    def _ordem(self) -> list[str]:
+        ordem = ["sis"]
+        if self.coletor.nvml:
+            ordem.append("gpu")
+        return ordem + ["rede", "disco"]
+
+    def _medir(self, layout: str) -> tuple[int, int, dict[str, tuple[float, float]]]:
+        """Tamanho da janela e canto de cada card para o layout pedido."""
+        alt = {k: getattr(self, f"_montar_{k}")(0, 0, {}) for k in self._ordem()}
+        pos: dict[str, tuple[float, float]] = {}
+        if layout == "painel":
+            colunas = [["sis"], [k for k in self._ordem() if k != "sis"]]
+            base = 0.0
             for i, col in enumerate(colunas):
-                y = topo
+                y = BORDA
                 for k in col:
-                    if alt[k]:
-                        self.rects[k] = QRectF(MARGEM + i * (LARG_CARD + GAP), y, LARG_CARD, alt[k])
-                        y += alt[k] + GAP
-                base = max(base, y)
-            altura = int(base - GAP + MARGEM)
-        else:
-            y = topo
-            for k in ("cpu", "ram", "gpu", "rede", "disco", "proc"):
-                if alt[k]:
-                    self.rects[k] = QRectF(MARGEM, y, LARG_CARD, alt[k])
+                    pos[k] = (BORDA + i * (LARG + GAP), y)
                     y += alt[k] + GAP
-            altura = int(y - GAP + MARGEM)
-        self._larg_header = larg - 2 * MARGEM
-        self.setFixedSize(larg, altura)
+                base = max(base, y - GAP)
+            return 2 * BORDA + 2 * LARG + GAP, int(math.ceil(base + BORDA)), pos
+        y = BORDA
+        for k in self._ordem():
+            pos[k] = (BORDA, y)
+            y += alt[k] + GAP
+        return 2 * BORDA + LARG, int(math.ceil(y - GAP + BORDA)), pos
+
+    def recalcular_layout(self) -> None:
+        layout = self.cfg["layout"]
+        w, h, pos = self._medir(layout)
+        # Empilhado não coube na altura do monitor: usa lado a lado (e vice-versa), sem mexer na escolha.
+        a = self._tela_atual().availableGeometry()
+        outro = "painel" if layout == "coluna" else "coluna"
+        if h > a.height() or w > a.width():
+            w2, h2, pos2 = self._medir(outro)
+            if h2 <= a.height() and w2 <= a.width():
+                layout, w, h, pos = outro, w2, h2, pos2
+        self.layout_efetivo = layout
+        L: dict[str, QRectF] = {}
+        self.cartoes = {}
+        for k, (x, y) in pos.items():
+            altura = getattr(self, f"_montar_{k}")(x, y, L)
+            self.cartoes[k] = QRectF(x, y, LARG, altura)
+        self.L = L
+        self._fundo = None
+        # Múltiplo de 4: em 125/150/175% o tamanho em pixels físicos fica inteiro e o widget não passa
+        # nem 1 pixel da borda do monitor por arredondamento (a sobra é transparente e não pega clique).
+        self.setFixedSize((w + 3) // 4 * 4, (h + 3) // 4 * 4)
         self.pedir_completo()
 
     # ------------------------------------------------------------------ dados
@@ -233,26 +412,25 @@ class MonitorWidget(QWidget):
         if primeira or len(d["discos"]) != n_antes:
             self.recalcular_layout()
             if self._hwnd:
-                self.reposicionar_depois_de_redimensionar()
+                QTimer.singleShot(0, self.posicionar)
         cpu, ram, gpu, rede = d["cpu"], d["ram"], d["gpu"], d["rede"]
+        self.amostras += 1
         self._alvo("cpu", cpu["total"])
         for i, v in enumerate(cpu["nucleos"]):
             self._alvo(f"n{i}", v)
         self._alvo("ram", ram["pct"])
-        self._alvo("ram_gb", ram["usada"])
         self.h_cpu.append(cpu["total"])
+        self._alvo("esc_cpu", self._escala(self.h_cpu))
         if gpu:
             self._alvo("gpu", gpu["uso"])
-            self._alvo("vram", gpu["vram_usada"] * 100.0 / max(1, gpu["vram_total"]))
             self.h_gpu.append(gpu["uso"])
+            self._alvo("esc_gpu", self._escala(self.h_gpu))
         self.h_down.append(rede["down_bps"])
         self.h_up.append(rede["up_bps"])
         self._alvo("down", rede["down_bps"])
         self._alvo("up", rede["up_bps"])
         pico = max(max(self.h_down), max(self.h_up), 10e6)
         self._alvo("escala_rede", pico * 1.18)
-        for dk in d["discos"]:
-            self._alvo("d_" + dk["letra"], dk["pct"])
         maior = max((p[2] for p in procs), default=1)
         for i, p in enumerate(procs):
             self._alvo(f"p{i}", p[2] * 100.0 / maior)
@@ -261,6 +439,14 @@ class MonitorWidget(QWidget):
         if not self.anim.isActive():
             self.anim.start()
         self.pedir_completo()
+
+    def _escala(self, serie) -> float:
+        reais = list(serie)[-max(1, min(self.amostras, PONTOS)):]
+        return max(10.0, max(reais) * 1.15)
+
+    def _media(self, serie) -> float:
+        reais = list(serie)[-max(1, min(self.amostras, 60)):]
+        return sum(reais) / len(reais)
 
     def _alvo(self, chave: str, valor: float) -> None:
         t = self.tw.get(chave)
@@ -273,6 +459,11 @@ class MonitorWidget(QWidget):
         t = self.tw.get(chave)
         return t.v if t else padrao
 
+    def _b(self, chave: str, padrao: float = 0.0) -> float:
+        """Valor-alvo (sem animação) para o que só muda a cada amostra."""
+        t = self.tw.get(chave)
+        return t.b if t else padrao
+
     def _quadro(self) -> None:
         if time.monotonic() - self.t0 >= DURACAO:
             self.anim.stop()
@@ -283,26 +474,53 @@ class MonitorWidget(QWidget):
         self._cache_sujo = True
         self.update()
 
+    def avisar(self, texto: str) -> None:
+        """Aviso curto no rodapé do card principal."""
+        self._aviso = (texto, time.monotonic() + 2.6)
+        self.pedir_completo()
+        QTimer.singleShot(2700, self.pedir_completo)
+
     # ------------------------------------------------------------------ janela nativa
 
     def preparar_nativo(self) -> None:
         self._hwnd = int(self.winId())
         winapi.aplicar_estilo_widget(self._hwnd)
-        self.aplicar_vidro()
-        if not self.teste_topo:
+        winapi.preparar_transparente(self._hwnd)
+        self.aplicar_fixacao()
+        h = self.windowHandle()
+        if h is not None:
+            h.screenChanged.connect(lambda *_: (self.pedir_completo(), self._vigia.start()))
+
+    def quer_topo(self) -> bool:
+        return bool(self.cfg["fixado"]) or self.teste_topo
+
+    def fixado_efetivo(self) -> bool:
+        return self.quer_topo() and not self.suspenso
+
+    def aplicar_fixacao(self) -> None:
+        """Fixado: sempre por cima das janelas. Solto: fica na área de trabalho, atrás das janelas."""
+        if not self._hwnd:
+            return
+        self.no_topo = self.fixado_efetivo()
+        if self.no_topo:
+            winapi.soltar_do_desktop(self._hwnd)
+            winapi.trazer_ao_topo(self._hwnd)
+        else:
+            winapi.tirar_do_topo(self._hwnd)
             winapi.fixar_ao_desktop(self._hwnd)
+            winapi.enviar_para_o_fundo(self._hwnd)
 
-    def aplicar_vidro(self) -> None:
-        if self._hwnd:
-            nivel = self.cfg["vidro"]
-            tinta = QColor(self.t.tinta)
-            winapi.aplicar_vidro(self._hwnd, (tinta.red(), tinta.green(), tinta.blue(),
-                                              TINTA_ACRILICO.get(nivel, 0x3A)))
-        self._cache = None
-        self.pedir_completo()
+    def alternar_fixado(self) -> None:
+        self.cfg["fixado"] = not self.cfg["fixado"]
+        self.cfg.salvar()
+        self.aplicar_fixacao()
+        self.avisar("Fixado sobre outras janelas." if self.cfg["fixado"] else "Fixação desativada.")
 
-    def reposicionar_depois_de_redimensionar(self) -> None:
-        QTimer.singleShot(0, self.posicionar)
+    def suspender(self, sim: bool) -> None:
+        """Jogo/app em tela cheia no monitor do widget: sai de cima enquanto ele estiver aberto."""
+        if sim != self.suspenso:
+            self.suspenso = sim
+            self.aplicar_fixacao()
 
     def nativeEvent(self, tipo, mensagem):
         try:
@@ -310,7 +528,7 @@ class MonitorWidget(QWidget):
         except Exception:
             return False, 0
         m = msg.message
-        if m == winapi.WM_WINDOWPOSCHANGING and not self.teste_topo:
+        if m == winapi.WM_WINDOWPOSCHANGING and not self.no_topo:
             wp = winapi.WINDOWPOS.from_address(msg.lParam)
             wp.hwndInsertAfter = winapi.HWND_BOTTOM
             wp.flags &= ~winapi.SWP_NOZORDER
@@ -318,7 +536,7 @@ class MonitorWidget(QWidget):
             return True, winapi.MA_NOACTIVATE
         elif m == winapi.MSG_MOSTRAR:
             self.show()
-            winapi.enviar_para_o_fundo(self._hwnd)
+            self.aplicar_fixacao()
             return True, 0
         elif m == winapi.MSG_MODO_JOGO:
             if self.ao_modo_jogo:
@@ -341,113 +559,222 @@ class MonitorWidget(QWidget):
                 return t
         return QGuiApplication.primaryScreen()
 
+    def _tela_atual(self):
+        if self.isVisible():
+            r = self.geometry()
+            melhor, area = None, 0
+            for t in QGuiApplication.screens():
+                i = t.availableGeometry().intersected(r)
+                if i.width() * i.height() > area:
+                    melhor, area = t, i.width() * i.height()
+            if melhor is not None:
+                return melhor
+        return self.tela_configurada()
+
+    def _dentro(self, x: int, y: int, a) -> tuple[int, int]:
+        """(x, y) ajustado para o widget inteiro caber na área útil `a` do monitor."""
+        larg, alt = self.width(), self.height()
+        x = a.x() if larg >= a.width() else max(a.x(), min(int(x), a.x() + a.width() - larg))
+        y = a.y() if alt >= a.height() else max(a.y(), min(int(y), a.y() + a.height() - alt))
+        return x, y
+
     def posicionar(self) -> None:
         tela = self.tela_configurada()
-        g = tela.geometry()
+        g, a = tela.geometry(), tela.availableGeometry()
         larg, alt = self.width(), self.height()
         margem = 24
         if self.cfg["livre"]:
             x, y = g.x() + self.cfg["x_rel"], g.y() + self.cfg["y_rel"]
         else:
             ancora = self.cfg["ancora"]
-            x = g.x() + (margem if "esq" in ancora else g.width() - larg - margem)
-            y = g.y() + (margem if ancora.startswith("sup") else g.height() - alt - margem)
+            x = a.x() + (margem if "esq" in ancora else a.width() - larg - margem)
+            y = a.y() + (margem if ancora.startswith("sup") else a.height() - alt - margem)
             if ancora == "centro":
-                x, y = g.x() + (g.width() - larg) // 2, g.y() + (g.height() - alt) // 2
-        x = max(g.x(), min(x, g.x() + g.width() - larg))
-        y = max(g.y(), min(y, g.y() + g.height() - alt))
-        self.move(int(x), int(y))
+                x, y = a.x() + (a.width() - larg) // 2, a.y() + (a.height() - alt) // 2
+        self.move(*self._dentro(x, y, a))
+
+    def reposicionar(self) -> None:
+        """Monitor ligado/desligado, resolução ou escala nova: refaz o layout e volta para dentro."""
+        self.recalcular_layout()
+        self.posicionar()
+        self.garantir_visivel()
+
+    def garantir_visivel(self) -> None:
+        """Se qualquer parte do widget estiver fora da área útil, traz para dentro do monitor
+        com que ele mais se sobrepõe (ou do configurado, se estiver fora de todos)."""
+        if self._arrasto is not None or not self.isVisible():
+            return
+        r = self.geometry()
+        a = self._tela_atual().availableGeometry()
+        x, y = self._dentro(r.x(), r.y(), a)
+        if (x, y) != (r.x(), r.y()):
+            self.move(x, y)
+
+    def moveEvent(self, ev) -> None:
+        super().moveEvent(ev)
+        if self._arrasto is None and self._hwnd:
+            self._vigia.start()
 
     def _salvar_posicao_livre(self) -> None:
-        centro = self.frameGeometry().center()
-        tela = QGuiApplication.screenAt(centro) or self.tela_configurada()
-        g = tela.geometry()
+        tela = self._tela_atual()
+        g, a = tela.geometry(), tela.availableGeometry()
         x, y = self.x(), self.y()
         margem = 24
-        # ímã nas bordas: gruda a 28 px do canto/margem
-        if abs(x - (g.x() + margem)) < 28:
-            x = g.x() + margem
-        if abs(x - (g.x() + g.width() - self.width() - margem)) < 28:
-            x = g.x() + g.width() - self.width() - margem
-        if abs(y - (g.y() + margem)) < 28:
-            y = g.y() + margem
-        if abs(y - (g.y() + g.height() - self.height() - margem)) < 28:
-            y = g.y() + g.height() - self.height() - margem
+        # ímã nas bordas: gruda a 24 px da borda da área útil quando chega perto
+        if abs(x - (a.x() + margem)) < 28:
+            x = a.x() + margem
+        if abs(x - (a.x() + a.width() - self.width() - margem)) < 28:
+            x = a.x() + a.width() - self.width() - margem
+        if abs(y - (a.y() + margem)) < 28:
+            y = a.y() + margem
+        if abs(y - (a.y() + a.height() - self.height() - margem)) < 28:
+            y = a.y() + a.height() - self.height() - margem
+        x, y = self._dentro(x, y, a)
         self.move(x, y)
         self.cfg.update(monitor=tela.name(), livre=True, x_rel=x - g.x(), y_rel=y - g.y())
         self.cfg.salvar()
 
     # ------------------------------------------------------------------ mouse
 
-    def _no_botao_jogo(self, pos) -> bool:
-        return self.r_jogo is not None and self.r_jogo.contains(pos)
+    def _alvo_em(self, pos) -> str | None:
+        r = self.L.get("sis.pin")
+        if r is not None and r.contains(pos):
+            return "fixar"
+        for k, c in self.cartoes.items():
+            if self._pilula(c).adjusted(-4, -3, 4, 4).contains(pos):
+                return "menu:" + k
+        r = self.L.get("sis.jogo")
+        if r is not None and r.contains(pos):
+            return "jogo"
+        return None
 
-    def _marcar_hover_jogo(self, dentro: bool) -> None:
-        if dentro != self._hover_jogo:
-            self._hover_jogo = dentro
-            if dentro:
-                self.setCursor(Qt.PointingHandCursor)
-            else:
-                self.unsetCursor()
+    def _dica(self, alvo: str | None) -> str:
+        if alvo == "fixar":
+            return "Desafixar widget" if self.cfg["fixado"] else "Fixar widget sobre outras janelas"
+        if alvo and alvo.startswith("menu:"):
+            return "Menu"
+        if alvo == "jogo":
+            return "Desativar Modo Jogo" if self.estado_jogo["ativo"] else "Ativar Modo Jogo"
+        return ""
+
+    def _cursor(self) -> None:
+        if self._arrasto is not None:
+            self.setCursor(Qt.ClosedHandCursor)
+        elif self._hover:
+            self.setCursor(Qt.PointingHandCursor)
+        elif not self.cfg["travado"]:
+            self.setCursor(Qt.OpenHandCursor)
+        else:
+            self.unsetCursor()
+
+    def _marcar_hover(self, alvo: str | None) -> None:
+        if alvo != self._hover:
+            self._hover = alvo
+            self.setToolTip(self._dica(alvo))
+            self._cursor()
             self.pedir_completo()
 
     def mousePressEvent(self, ev) -> None:
-        if ev.button() == Qt.LeftButton and self._no_botao_jogo(ev.position()):
-            self._apertou_jogo = True
+        if ev.button() != Qt.LeftButton:
             return
-        if ev.button() == Qt.LeftButton and not self.cfg["travado"]:
-            self._arrasto = ev.globalPosition() - QPointF(self.pos())
-            self.setCursor(Qt.SizeAllCursor)
+        alvo = self._alvo_em(ev.position())
+        if alvo:
+            self._apertado = alvo
+            return
+        if not self.cfg["travado"]:
+            self._arrasto = QCursor.pos() - self.pos()
+            self._cursor()
+
+    def arrastar_para(self, cursor: QPoint) -> None:
+        """O widget segue o mouse e fica inteiro dentro da área útil do monitor onde está o cursor."""
+        tela = QGuiApplication.screenAt(cursor) or self._tela_atual()
+        x, y = self._dentro(cursor.x() - self._arrasto.x(), cursor.y() - self._arrasto.y(),
+                            tela.availableGeometry())
+        if (x, y) != (self.x(), self.y()):
+            self.move(x, y)
 
     def mouseMoveEvent(self, ev) -> None:
         if self._arrasto is not None:
-            p = ev.globalPosition() - self._arrasto
-            self.move(int(p.x()), int(p.y()))
-        else:
-            self._marcar_hover_jogo(self._no_botao_jogo(ev.position()))
+            self.arrastar_para(QCursor.pos())
+        elif not self._apertado:
+            self._marcar_hover(self._alvo_em(ev.position()))
 
     def leaveEvent(self, ev) -> None:
-        self._marcar_hover_jogo(False)
+        if self._arrasto is None:
+            self._marcar_hover(None)
 
     def mouseReleaseEvent(self, ev) -> None:
-        if self._apertou_jogo:
-            self._apertou_jogo = False
-            if self._no_botao_jogo(ev.position()) and self.ao_modo_jogo:
-                self.ao_modo_jogo()
+        if self._apertado:
+            alvo, self._apertado = self._apertado, None
+            if self._alvo_em(ev.position()) == alvo:
+                self._acionar(alvo)
             return
         if self._arrasto is not None:
             self._arrasto = None
-            self.unsetCursor()
+            self._cursor()
             self._salvar_posicao_livre()
-            winapi.enviar_para_o_fundo(self._hwnd)
+            self.aplicar_fixacao()
+
+    def _acionar(self, alvo: str) -> None:
+        if alvo == "fixar":
+            self.alternar_fixado()
+        elif alvo == "jogo":
+            if self.ao_modo_jogo:
+                self.ao_modo_jogo()
+        elif alvo.startswith("menu:"):
+            pil = self._pilula(self.cartoes[alvo[5:]])
+            menu = self.criar_menu()
+            canto = self.mapToGlobal(QPoint(int(pil.right()), int(pil.bottom()) + 6))
+            menu.exec(QPoint(canto.x() - menu.sizeHint().width(), canto.y()))
 
     def contextMenuEvent(self, ev) -> None:
         self.criar_menu().exec(ev.globalPos())
 
-    # ------------------------------------------------------------------ pintura
+    # ------------------------------------------------------------------ pintura: utilidades
 
-    def _f(self, px: float, peso=QFont.Weight.Medium, espaco: float = 0.0) -> QFont:
-        chave = (px, peso, espaco)
-        f = self._fontes.get(chave)
-        if f is None:
-            f = QFont("Inter")
-            f.setPointSizeF(px * 0.75)
-            f.setWeight(peso)
-            f.setFeature(QFont.Tag("tnum"), 1)
-            f.setKerning(True)
-            if espaco:
-                f.setLetterSpacing(QFont.AbsoluteSpacing, espaco)
-            self._fontes[chave] = f
-        return f
-
-    def _t(self, p: QPainter, x: float, y: float, w: float, h: float, s: str, fonte: QFont,
-           c: QColor, alinh=Qt.AlignLeft) -> None:
-        p.setFont(fonte)
+    def _tx(self, p: QPainter, x: float, base: float, s: str, f: QFont, c: QColor, alinh: str = "e") -> float:
+        """Texto com a linha de base em `base`; alinh: e (esquerda), d (direita), c (centro)."""
+        w = self.fontes.medidas(f).horizontalAdvance(s)
+        if alinh == "d":
+            x -= w - f.letterSpacing()       # o avanço inclui o espaçamento depois da última letra
+        elif alinh == "c":
+            x -= w / 2
+        p.setFont(f)
         p.setPen(c)
-        p.drawText(QRectF(x, y, w, h), alinh | Qt.AlignVCenter, s)
+        p.drawText(QPointF(x, base), s)
+        return w
 
-    def _larg(self, s: str, fonte: QFont) -> float:
-        return QFontMetricsF(fonte).horizontalAdvance(s)
+    def _larg(self, s: str, f: QFont) -> float:
+        return self.fontes.medidas(f).horizontalAdvance(s)
+
+    def _cortar(self, s: str, f: QFont, larg: float) -> str:
+        return self.fontes.medidas(f).elidedText(s, Qt.ElideRight, larg)
+
+    def _icone(self, p: QPainter, nome: str, r: QRectF, c: QColor, traco: float = 2.0) -> None:
+        chave = (nome, c.rgba(), traco)
+        ren = self._svgs.get(chave)
+        if ren is None:
+            hexa = c.name()
+            corpo = SVG[nome].replace("{c}", hexa)
+            xml = (f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="{hexa}" '
+                   f'stroke-opacity="{c.alphaF():.3f}" stroke-width="{traco}" stroke-linecap="round" '
+                   f'stroke-linejoin="round">{corpo}</svg>')
+            ren = self._svgs[chave] = QSvgRenderer(QByteArray(xml.encode("utf-8")))
+        ren.render(p, r)
+
+    @staticmethod
+    def _pilula(c: QRectF) -> QRectF:
+        return QRectF(c.right() - 26 - 40, c.top() - 2, 40, 15)
+
+    def _rotulo(self, p: QPainter, r: QRectF, esq: str, dir_: str = "", cor_dir: QColor = T1) -> None:
+        """Linha de rótulo acima de um bloco (caixa alta 10,5 px)."""
+        f = self.fontes.ui(10.5, 600, 0.1)
+        base = r.top() + 10
+        self._tx(p, r.x() + 2, base, esq.upper(), f, T2)
+        if dir_:
+            self._tx(p, r.right() - 2, base, dir_.upper(), f, cor_dir, "d")
+
+    # ------------------------------------------------------------------ pintura: camadas
 
     def paintEvent(self, _ev) -> None:
         self.e = suave(min(1.0, (time.monotonic() - self.t0) / DURACAO)) if self.t0 else 1.0
@@ -455,386 +782,482 @@ class MonitorWidget(QWidget):
             t.passo(self.e)
         self._garantir_cache()
         p = QPainter(self)
-        p.setRenderHints(QPainter.Antialiasing | QPainter.TextAntialiasing)
+        p.setRenderHints(QPainter.Antialiasing | QPainter.TextAntialiasing | QPainter.SmoothPixmapTransform)
         p.setCompositionMode(QPainter.CompositionMode_Source)
         p.drawPixmap(0, 0, self._cache)
         p.setCompositionMode(QPainter.CompositionMode_SourceOver)
         if self.d is not None:
-            for chave, r in self.rects.items():
-                getattr(self, f"_c_{chave}")(p, r, False)
+            self._d_sis(p)
+            if "gpu" in self.cartoes and self.d["gpu"]:
+                self._d_gpu(p)
+            self._d_rede(p)
         p.end()
+
+    def _garantir_fundo(self, dpr: float) -> QPixmap:
+        if self._fundo is not None and self._fundo.devicePixelRatio() == dpr:
+            return self._fundo
+        pm = QPixmap(int(math.ceil(self.width() * dpr)), int(math.ceil(self.height() * dpr)))
+        pm.setDevicePixelRatio(dpr)
+        pm.fill(Qt.transparent)
+        q = QPainter(pm)
+        q.setRenderHints(QPainter.Antialiasing | QPainter.SmoothPixmapTransform)
+        logos = {"sis": "pulso", "gpu": "gpu", "rede": "rede", "disco": "disco"}
+        for k, c in self.cartoes.items():
+            forma = self._cartao(q, c)
+            self._logo(q, self.L[f"{k}.cab"], logos[k])
+            if k == "sis":
+                self._painel_neon(q, self.L["sis.neon"], forma, dpr)
+        q.end()
+        self._fundo = pm
+        return pm
 
     def _garantir_cache(self) -> None:
         dpr = self.devicePixelRatioF()
         if self._cache is not None and self._cache_dpr == dpr and not self._cache_sujo:
             return
-        pm = QPixmap(int(self.width() * dpr), int(self.height() * dpr))
+        fundo = self._garantir_fundo(dpr)
+        pm = QPixmap(fundo.size())
         pm.setDevicePixelRatio(dpr)
         pm.fill(Qt.transparent)
         q = QPainter(pm)
-        q.setRenderHints(QPainter.Antialiasing | QPainter.TextAntialiasing)
-        self._fundo(q)
-        for r in self.rects.values():
-            self._cartao(q, r)
-        self._cabecalho(q)
-        self._botao_jogo(q)
-        if self.d is not None:
-            for chave, r in self.rects.items():
-                getattr(self, f"_c_{chave}")(q, r, True)
+        q.drawPixmap(0, 0, fundo)
+        q.setRenderHints(QPainter.Antialiasing | QPainter.TextAntialiasing | QPainter.SmoothPixmapTransform)
+        for k, c in self.cartoes.items():
+            self._pontos(q, k, c)
+        self._e_sis(q)
+        if "gpu" in self.cartoes:
+            self._e_gpu(q)
+        self._e_rede(q)
+        self._e_disco(q)
         q.end()
         self._cache, self._cache_dpr, self._cache_sujo = pm, dpr, False
 
-    def _b(self, chave: str, padrao: float = 0.0) -> float:
-        """Valor-alvo (sem animação) para o que só muda a cada amostra."""
-        t = self.tw.get(chave)
-        return t.b if t else padrao
+    # ------------------------------------------------------------------ peças fixas
 
-    # ---- peças comuns
+    def _cartao(self, p: QPainter, c: QRectF) -> QPainterPath:
+        forma = caminho_pasta(c)
+        g = QLinearGradient(0, c.top(), 0, c.bottom())
+        g.setColorAt(0, QColor("#1f1f23"))
+        g.setColorAt(0.35, QColor("#111113"))
+        g.setColorAt(1, QColor("#09090a"))
+        p.fillPath(forma, g)
+        borda = caminho_pasta(QRectF(c.x() + 0.5, c.y() + 0.5, c.width() - 1, c.height() - 1))
+        gb = QLinearGradient(0, c.top(), 0, c.bottom())
+        gb.setColorAt(0, cor("#ffffff", 0.18))
+        gb.setColorAt(0.3, cor("#ffffff", 0.10))
+        gb.setColorAt(1, cor("#ffffff", 0.08))
+        p.strokePath(borda, QPen(gb, 1))
+        # "•••" no recorte (os pontos vão na camada de textos, que muda no hover)
+        pil = self._pilula(c)
+        g = QLinearGradient(0, pil.top(), 0, pil.bottom())
+        g.setColorAt(0, QColor("#232327"))
+        g.setColorAt(1, QColor("#151517"))
+        p.fillPath(retangulo(pil, 7.5), g)
+        p.strokePath(retangulo(pil.adjusted(0.5, 0.5, -0.5, -0.5), 7), QPen(cor("#ffffff", 0.1), 1))
+        return forma
 
-    def _fundo(self, p: QPainter) -> None:
-        t = self.t
-        r = QRectF(self.rect()).adjusted(0.5, 0.5, -0.5, -0.5)
+    def _logo(self, p: QPainter, cab: QRectF, glifo: str) -> None:
+        r = QRectF(cab.x(), cab.y(), 38, 38)
         p.setPen(Qt.NoPen)
-        p.setBrush(cor(t.tinta, VIDROS.get(self.cfg["vidro"], 150)))
-        p.drawRoundedRect(r, RAIO_JANELA, RAIO_JANELA)
-        # lavagem de cor suave nos cantos (dá profundidade ao vidro)
+        for i, a in enumerate((0.16, 0.10, 0.05)):       # sombra curta embaixo (0 2px 6px)
+            p.setBrush(cor("#000000", a))
+            p.drawEllipse(r.adjusted(-i, 2 - i * 0.3, i, 2 + i))
+        g = QRadialGradient(QPointF(r.x() + r.width() * 0.32, r.y() + r.height() * 0.28), 37.6)
+        g.setColorAt(0, QColor("#4a4a50"))
+        g.setColorAt(0.55, QColor("#26262a"))
+        g.setColorAt(1, QColor("#18181b"))
+        circ = QPainterPath()
+        circ.addEllipse(r)
+        p.fillPath(circ, g)
+        p.fillPath(circ.subtracted(circ.translated(0, 1)), cor("#ffffff", 0.14))
+        self._icone(p, glifo, QRectF(r.center().x() - 10, r.center().y() - 10, 20, 20), NEON, 2.2)
+
+    def _painel_neon(self, p: QPainter, r: QRectF, forma: QPainterPath, dpr: float) -> None:
+        """Painel neon: brilho na cor do widget (só dentro do card), aro de 1 px, reflexo branco em cima."""
+        m = 50
+        img = QImage(int(math.ceil((r.width() + 2 * m) * dpr)), int(math.ceil((r.height() + 2 * m) * dpr)),
+                     QImage.Format_ARGB32_Premultiplied)
+        img.setDevicePixelRatio(dpr)
+        img.fill(Qt.transparent)
+        q = QPainter(img)
+        q.setRenderHint(QPainter.Antialiasing)
+        q.setCompositionMode(QPainter.CompositionMode_Source)
+        q.setPen(Qt.NoPen)
+        base = QRectF(m, m, r.width(), r.height())
+        # box-shadow 0 0 18px neon@55%, 0 0 46px neon@28%: desfoque gaussiano (sigma = raio/2) da borda
+        passo = 0.5
+        d = m - 1.0
+        while d >= 0:
+            a1 = 0.55 * 0.5 * math.erfc(d / (9 * math.sqrt(2)))
+            a2 = 0.28 * 0.5 * math.erfc(d / (23 * math.sqrt(2)))
+            q.setBrush(cor(NEON, 1 - (1 - a1) * (1 - a2)))
+            q.drawRoundedRect(base.adjusted(-d, -d, d, d), 15 + d, 15 + d)
+            d -= passo
+        q.end()
         p.save()
-        clip = QPainterPath()
-        clip.addRoundedRect(r, RAIO_JANELA, RAIO_JANELA)
-        p.setClipPath(clip)
-        g1 = QRadialGradient(r.left() + 40, r.top() + 20, 330)
-        g1.setColorAt(0, cor(t.lavagem1, t.lavagem1_alpha))
-        g1.setColorAt(1, cor(t.lavagem1, 0))
-        p.setBrush(g1)
-        p.drawRect(r)
-        g2 = QRadialGradient(r.right() - 20, r.bottom() - 10, 360)
-        g2.setColorAt(0, cor(t.lavagem2, t.lavagem2_alpha))
-        g2.setColorAt(1, cor(t.lavagem2, 0))
-        p.setBrush(g2)
-        p.drawRect(r)
+        p.setClipPath(forma)
+        p.drawImage(QPointF(r.x() - m, r.y() - m), img)
         p.restore()
-        p.setBrush(Qt.NoBrush)
-        p.setPen(QPen(cor(t.borda, 52), 1))
-        p.drawRoundedRect(r, RAIO_JANELA, RAIO_JANELA)
+        p.strokePath(retangulo(r.adjusted(-0.5, -0.5, 0.5, 0.5), 15.5), QPen(cor(NEON, 0.9), 1))
+        corpo = retangulo(r, 15)
+        p.fillPath(corpo, NEON)
+        g = QLinearGradient(0, r.top(), 0, r.bottom())
+        g.setColorAt(0, cor("#ffffff", 0.22))
+        g.setColorAt(0.55, cor("#ffffff", 0))
+        p.fillPath(corpo, g)
+        p.fillPath(corpo.subtracted(corpo.translated(0, 1)), cor("#ffffff", 0.45))
 
-    def _cartao(self, p: QPainter, r: QRectF) -> None:
+    def _pontos(self, p: QPainter, k: str, c: QRectF) -> None:
+        pil = self._pilula(c)
         p.setPen(Qt.NoPen)
-        g = QLinearGradient(r.topLeft(), r.bottomLeft())
-        g.setColorAt(0, cor(self.t.cartao, 24))
-        g.setColorAt(1, cor(self.t.cartao, 10))
-        p.setBrush(g)
-        p.drawRoundedRect(r, RAIO_CARD, RAIO_CARD)
-        p.setBrush(Qt.NoBrush)
-        p.setPen(QPen(cor(self.t.cartao, 24), 1))
-        p.drawRoundedRect(r.adjusted(0.5, 0.5, -0.5, -0.5), RAIO_CARD, RAIO_CARD)
+        p.setBrush(NEON if self._hover == "menu:" + k else QColor("#e9e9ec"))
+        for i in (-1, 0, 1):
+            p.drawEllipse(QPointF(pil.center().x() + i * 8, pil.center().y()), 2, 2)
 
-    def _rotulo(self, p: QPainter, x: float, y: float, titulo: str, acento: str, sub: str = "") -> None:
+    def _titulo(self, p: QPainter, cab: QRectF, titulo: str, sub: str, reserva: float = 0) -> None:
+        x = cab.x() + 38 + 12
+        larg = cab.right() - x - reserva
+        f = self.fontes.ui(17, 500, -0.01)
+        self._tx(p, x, cab.top() + 17, self._cortar(titulo, f, larg), f, T1)
+        f = self.fontes.ui(11.5, 400)
+        self._tx(p, x, cab.top() + 34, self._cortar(sub, f, larg), f, T2)
+
+    def _botao(self, p: QPainter, r: QRectF, icone: str, ligado: bool, hover: bool) -> None:
         p.setPen(Qt.NoPen)
-        p.setBrush(cor(acento))
-        p.drawEllipse(QPointF(x + 3.5, y + 8), 3.5, 3.5)
-        f = self._f(10.5, QFont.Weight.Bold, 1.4)
-        self._t(p, x + 13, y, 200, 16, titulo, f, self.T1)
-        if sub:
-            self._t(p, x + 13 + self._larg(titulo, f) + 8, y, 220, 16, sub,
-                    self._f(11, QFont.Weight.Medium), self.T3)
+        p.setBrush(cor("#000000", 0.35))
+        p.drawRoundedRect(r.translated(0, 1), 9, 9)
+        corpo = retangulo(r, 9)
+        g = QLinearGradient(0, r.top(), 0, r.bottom())
+        g.setColorAt(0, QColor("#2a2a2e"))
+        g.setColorAt(1, QColor("#1c1c1f"))
+        p.fillPath(corpo, g)
+        p.fillPath(corpo.subtracted(corpo.translated(0, 1)), cor("#ffffff", 0.08))
+        if ligado:
+            p.strokePath(retangulo(r.adjusted(0.5, 0.5, -0.5, -0.5), 8.5), QPen(cor(NEON, 0.45), 1))
+        c = NEON if (ligado or hover) else T2
+        self._icone(p, icone, QRectF(r.center().x() - 7.5, r.center().y() - 7.5, 15, 15), c, 2.0)
 
-    def _pct_grande(self, p: QPainter, x_dir: float, y: float, valor: float, acento: str) -> None:
-        c = calor(acento, valor, self.t) if acento else self.T1
-        c = mais_claro(c, 0.18)
-        s = f"{valor:.0f}"
-        fg, fp = self._f(30, QFont.Weight.DemiBold), self._f(14, QFont.Weight.Medium)
-        wp = self._larg("%", fp)
-        wn = self._larg(s, fg)
-        self._t(p, x_dir - wp - wn - 2, y, wn + 2, 36, s, fg, c, Qt.AlignRight)
-        self._t(p, x_dir - wp, y + 7, wp, 22, "%", fp, self.T2, Qt.AlignRight)
+    def _mini(self, p: QPainter, heroi: QRectF, valor: str, unidade: str, rotulo: str) -> None:
+        """Dado secundário médio à direita do número grande (o gráfico vai na camada animada)."""
+        xd = heroi.right()
+        topo_graf = heroi.bottom() - 34
+        base_k = topo_graf - 4.5
+        self._tx(p, xd, base_k, rotulo.upper(), self.fontes.ui(10, 400, 0.08), T3, "d")
+        base_v = base_k - 14
+        fu = self.fontes.num(15, 300)
+        wu = self._tx(p, xd, base_v, unidade, fu, T2, "d")
+        self._tx(p, xd - wu - 2, base_v, valor, self.fontes.num(30, 300), T1, "d")
 
-    def _barra(self, p: QPainter, r: QRectF, pct: float, acento: str, aquecer: bool = True) -> None:
-        raio = r.height() / 2
-        p.setPen(Qt.NoPen)
-        p.setBrush(cor(self.t.cartao, 22))
-        p.drawRoundedRect(r, raio, raio)
-        frac = max(0.0, min(1.0, pct / 100.0))
-        if frac <= 0.001:
+    def _stats(self, p: QPainter, r: QRectF, itens: list) -> None:
+        """Linha de estatísticas: até 3 colunas com divisória de 1 px."""
+        n = len(itens)
+        larg = r.width() / n
+        fk = self.fontes.ui(10, 600, 0.09)
+        fv = self.fontes.num(27, 300)
+        fu = self.fontes.num(13, 400)
+        fd = self.fontes.ui(13, 500)
+        for i, (icone, rotulo, valor, unidade, destaque) in enumerate(itens):
+            x0 = r.x() + i * larg
+            if i:
+                p.fillRect(QRectF(x0, r.top(), 1, r.height()), FIO)
+            x = x0 + (12 if i else 2)
+            disp = larg - (x - x0) - 4
+            self._icone(p, icone, QRectF(x, r.top() + 0.5, 11, 11), NEON, 2.4)
+            self._tx(p, x + 16, r.top() + 9.5, self._cortar(rotulo.upper(), fk, disp - 16), fk, T3)
+            wv = self._tx(p, x, r.top() + 44, valor, fv, T1)
+            if unidade:
+                self._tx(p, x + wv + 3, r.top() + 44, unidade, fu, T2)
+            if destaque:
+                self._tx(p, x, r.top() + 66, self._cortar(destaque, fd, disp), fd, NEON)
+
+    # ------------------------------------------------------------------ camada de textos (1x por amostra)
+
+    def _e_sis(self, p: QPainter) -> None:
+        L, d = self.L, self.d
+        sub = f"{self.coletor.cpu_nome} · {self.coletor.cpu_threads} threads"
+        self._titulo(p, L["sis.cab"], "Monitor do PC", sub, reserva=40)
+        self._botao(p, L["sis.pin"], "fixado" if self.cfg["fixado"] else "fixar", bool(self.cfg["fixado"]),
+                    self._hover == "fixar")
+        self._nota(p, L["sis.nota"])
+        if "sis.jogo" in L:
+            self._botao_jogo(p, L["sis.jogo"])
+        if d is None:
             return
-        w = max(r.height(), r.width() * frac)
-        cheio = QRectF(r.x(), r.y(), w, r.height())
-        base = calor(acento, pct, self.t) if aquecer else QColor(acento)
-        g = QLinearGradient(cheio.topLeft(), cheio.topRight())
-        g.setColorAt(0, base)
-        g.setColorAt(1, mais_claro(base, 0.32))
-        p.setBrush(g)
-        p.drawRoundedRect(cheio, raio, raio)
+        # média do último minuto, ao lado do gráfico
+        self._mini(p, L["sis.heroi"], f"{self._media(self.h_cpu):.0f}", "%", "média · 1 min")
+        # memória (painel neon)
+        ram = d["ram"]
+        pct = ram["pct"]
+        estado = "quase cheia" if pct >= 90 else ("alta" if pct >= 75 else "normal")
+        self._rotulo(p, L["sis.mem_cab"], "Memória RAM", estado)
+        r = L["sis.neon"]
+        x0, x1 = r.x() + 14, r.right() - 14
+        self._tx(p, x0, r.top() + 29, "EM USO", self.fontes.ui(11, 600, 0.04), TINTA)
+        self._tx(p, x1, r.top() + 29, f"{cap(ram['usada'])} · {pct:.0f}%", self.fontes.num(17, 500), TINTA, "d")
+        fr = self.fontes.ui(10.5, 500, 0.02)
+        tinta = cor(TINTA, 0.78)
+        self._tx(p, x0, r.top() + 65, f"{cap(ram['livre'])} livres", fr, tinta)
+        self._tx(p, x1, r.top() + 65, f"de {cap(ram['total'])}", fr, tinta, "d")
+        # maiores usos de RAM
+        if "sis.procs" in L:
+            soma = sum(b for _, _, b in self.procs[:5])
+            self._rotulo(p, L["sis.proc_cab"], "Maiores usos de RAM", cap(soma) if soma else "")
+            r = L["sis.procs"]
+            fn, fq, fv = self.fontes.ui(12, 500), self.fontes.ui(11.5, 400), self.fontes.num(16, 400)
+            for i, (nome, qtd, bytes_) in enumerate(self.procs[:5]):
+                base = r.top() + 14 + i * 25
+                valor = cap(bytes_)
+                wv = self._tx(p, r.right() - 2, base, valor, fv, T1, "d")
+                extra = f"  ×{qtd}" if qtd > 1 else ""
+                we = self._larg(extra, fq)
+                texto = self._cortar(nome, fn, r.width() - wv - we - 18)
+                w = self._tx(p, r.x() + 2, base, texto, fn, T1)
+                if extra:
+                    self._tx(p, r.x() + 2 + w, base, extra, fq, T3)
+                barra = QRectF(r.x() + 2, base + 5, r.width() - 4, 2)
+                p.fillRect(barra, FIO)
+                frac = max(0.0, min(1.0, self._b(f"p{i}") / 100.0))
+                p.fillRect(QRectF(barra.x(), barra.y(), max(2.0, barra.width() * frac), 2), cor(T2, 0.55))
 
-    def _grafico(self, p: QPainter, r: QRectF, series, vmax: float, acento: str, preencher=True,
-                 largura: float = 1.7) -> None:
-        n = len(series)
-        if n < 3:
-            return
-        passo = r.width() / (PONTOS - 2)
-        deslocamento = (1 - self.e) * passo
-        pts = []
-        for i, v in enumerate(series):
-            x = r.right() - (n - 1 - i) * passo + deslocamento
-            y = r.bottom() - 2 - max(0.0, min(1.0, v / vmax)) * (r.height() - 5)
-            pts.append((x, y))
-        linha = QPainterPath(QPointF(*pts[0]))
-        for i in range(1, n - 1):
-            mx, my = (pts[i][0] + pts[i + 1][0]) / 2, (pts[i][1] + pts[i + 1][1]) / 2
-            linha.quadTo(pts[i][0], pts[i][1], mx, my)
-        linha.lineTo(*pts[-1])
-        p.save()
-        p.setClipRect(r.adjusted(-1, -2, 1, 2))
-        if preencher:
-            area = QPainterPath(linha)
-            area.lineTo(pts[-1][0], r.bottom() + 2)
-            area.lineTo(pts[0][0], r.bottom() + 2)
-            area.closeSubpath()
-            g = QLinearGradient(0, r.top(), 0, r.bottom())
-            g.setColorAt(0, cor(acento, 110))
-            g.setColorAt(1, cor(acento, 0))
-            p.setPen(Qt.NoPen)
-            p.setBrush(g)
-            p.drawPath(area)
-        p.setBrush(Qt.NoBrush)
-        p.setPen(QPen(cor(acento, 46), largura + 2.6, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
-        p.drawPath(linha)
-        p.setPen(QPen(mais_claro(QColor(acento), 0.12), largura, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
-        p.drawPath(linha)
-        p.restore()
-
-    def _grade(self, p: QPainter, r: QRectF) -> None:
-        p.setPen(QPen(cor(self.t.cartao, 13), 1))
-        for f in (0.25, 0.5, 0.75):
-            y = r.top() + r.height() * f
-            p.drawLine(QPointF(r.left(), y), QPointF(r.right(), y))
-
-    # ---- cabeçalho
-
-    def _cabecalho(self, p: QPainter) -> None:
-        x, y = MARGEM, MARGEM
-        if self._arte is not None and not self._arte.isNull():
-            dpr = self.devicePixelRatioF()
-            pm = self._arte_cache.get(dpr)
-            if pm is None:                     # reduz 1x com filtro suave para o tamanho real em pixels
-                lado = int(40 * dpr)
-                pm = self._arte.scaled(lado, lado, Qt.KeepAspectRatio, Qt.SmoothTransformation)
-                pm.setDevicePixelRatio(dpr)
-                self._arte_cache[dpr] = pm
-            p.drawPixmap(int(x - 3), int(y + 3), pm)
-        else:
-            ic = QRectF(x, y + 6, 34, 34)
-            g = QLinearGradient(ic.topLeft(), ic.bottomRight())
-            g.setColorAt(0, cor(self.t.marca[0]))
-            g.setColorAt(1, cor(self.t.marca[1]))
-            p.setPen(Qt.NoPen)
-            p.setBrush(g)
-            p.drawRoundedRect(ic, 10, 10)
-            p.setBrush(QColor(255, 255, 255, 235))
-            for i, h in enumerate((10, 18, 13)):
-                p.drawRoundedRect(QRectF(ic.x() + 9 + i * 6.5, ic.bottom() - 8 - h, 4, h), 2, 2)
-        self._t(p, x + 44, y + 4, 200, 22, "Monitor do PC", self._f(15, QFont.Weight.DemiBold), self.T1)
-        sub = f"Ligado há {duracao(self.d['uptime'])}" if self.d else "Iniciando…"
-        self._t(p, x + 44, y + 24, 220, 18, sub, self._f(11.5, QFont.Weight.Medium), self.T2)
+    def _nota(self, p: QPainter, r: QRectF) -> None:
+        p.fillRect(QRectF(r.x(), r.top(), r.width(), 1), FIO)
+        f = self.fontes.ui(10.5, 400)
+        base = r.top() + 20
         agora = datetime.now()
-        direita = x + self._larg_header
-        self._t(p, direita - 120, y + 2, 120, 26, agora.strftime("%H:%M"),
-                self._f(21, QFont.Weight.DemiBold), self.T1, Qt.AlignRight)
-        data = f"{SEMANA[agora.weekday()]}, {agora.day} {MESES[agora.month - 1]}"
-        self._t(p, direita - 120, y + 26, 120, 16, data, self._f(11.5, QFont.Weight.Medium), self.T2,
-                Qt.AlignRight)
+        hora = f"{agora:%H:%M} · {SEMANA[agora.weekday()]}, {agora.day} {MESES[agora.month - 1]}"
+        wh = self._tx(p, r.right(), base, hora, f, T3, "d")
+        if self._aviso and time.monotonic() < self._aviso[1]:
+            self._tx(p, r.x(), base, self._cortar(self._aviso[0], f, r.width() - wh - 10), f, NEON)
+        elif self.d is not None:
+            self._tx(p, r.x(), base, f"Ligado há {duracao(self.d['uptime'])}", f, T3)
+        else:
+            self._tx(p, r.x(), base, "Iniciando…", f, T3)
 
-    # ---- botão Modo Jogo
-
-    def _botao_jogo(self, p: QPainter) -> None:
-        r = self.r_jogo
-        if r is None:
-            return
-        ej, t = self.estado_jogo, self.t
-        ativo, ocupado, hover = ej["ativo"], ej["ocupado"], self._hover_jogo
-        raio = r.height() / 2
+    def _botao_jogo(self, p: QPainter, r: QRectF) -> None:
+        ej = self.estado_jogo
+        ativo, ocupado, hover = ej["ativo"], ej["ocupado"], self._hover == "jogo"
         p.setPen(Qt.NoPen)
+        p.setBrush(cor("#000000", 0.35))
+        p.drawRoundedRect(r.translated(0, 1), 12, 12)
+        corpo = retangulo(r, 12)
+        g = QLinearGradient(0, r.top(), 0, r.bottom())
+        g.setColorAt(0, QColor("#2e2e33" if hover else "#2a2a2e"))
+        g.setColorAt(1, QColor("#1f1f23" if hover else "#1c1c1f"))
+        p.fillPath(corpo, g)
+        p.fillPath(corpo.subtracted(corpo.translated(0, 1)), cor("#ffffff", 0.08))
+        if ativo or hover:
+            p.strokePath(retangulo(r.adjusted(0.5, 0.5, -0.5, -0.5), 11.5), QPen(cor(NEON, 0.6 if ativo else 0.4), 1))
+        self._icone(p, "jogo", QRectF(r.x() + 13, r.center().y() - 9, 18, 18), NEON if (ativo or hover) else T2, 1.9)
+        x = r.x() + 42
+        larg = r.width() - 42 - 60
+        self._tx(p, x, r.top() + 17, "MODO JOGO ATIVO" if ativo else "MODO JOGO", self.fontes.ui(10.5, 600, 0.08),
+                 T1)
+        sub = ocupado or ej["linha"] or "Fecha o que está aberto e foca no jogo"
+        f = self.fontes.ui(11, 400)
+        self._tx(p, x, r.top() + 32, self._cortar(sub, f, larg), f, T1 if ativo else T2)
+        s = QRectF(r.right() - 14 - 34, r.center().y() - 9, 34, 18)
         if ativo:
-            g = QLinearGradient(r.topLeft(), r.topRight())
-            g.setColorAt(0, cor(t.marca[1], 175 if hover else 150))
-            g.setColorAt(1, cor(t.marca[0], 120 if hover else 95))
-            p.setBrush(g)
-        else:
-            p.setBrush(cor(t.cartao, 30 if hover else 16))
-        p.drawRoundedRect(r, raio, raio)
-        p.setBrush(Qt.NoBrush)
-        borda = cor(t.marca[0], 200) if ativo else cor(t.cartao, 52 if hover else 26)
-        p.setPen(QPen(borda, 1))
-        p.drawRoundedRect(r.adjusted(0.5, 0.5, -0.5, -0.5), raio, raio)
-
-        icone = QColor(255, 255, 255, 245) if ativo else (mais_claro(QColor(t.marca[0]), 0.1) if hover else self.T1)
-        self._icone_controle(p, QRectF(r.x() + 15, r.center().y() - 7.5, 24, 15), icone)
-        x = r.x() + 50
-        larg_texto = r.width() - 50 - 62
-        self._t(p, x, r.y() + 4, larg_texto, 16, "MODO JOGO ATIVO" if ativo else "MODO JOGO",
-                self._f(10.5, QFont.Weight.Bold, 1.4), self.T1)
-        sub = ocupado or ej["linha"] or "Clique para fechar tudo e focar nos jogos"
-        fonte = self._f(11, QFont.Weight.Medium)
-        sub = QFontMetricsF(fonte).elidedText(sub, Qt.ElideRight, larg_texto)
-        self._t(p, x, r.y() + 19, larg_texto, 15, sub, fonte, self.T1 if ativo else self.T2)
-
-        # interruptor
-        s = QRectF(r.right() - 14 - 36, r.center().y() - 10, 36, 20)
-        p.setPen(Qt.NoPen)
-        p.setBrush(QColor(255, 255, 255, 235) if ativo else cor(t.cartao, 38))
-        p.drawRoundedRect(s, 10, 10)
-        if ocupado:
-            bola_x, bola = s.center().x(), self.T2
-        elif ativo:
-            bola_x, bola = s.right() - 10, QColor(t.marca[1])
-        else:
-            bola_x, bola = s.x() + 10, self.T2
-        p.setBrush(bola)
-        p.drawEllipse(QPointF(bola_x, s.center().y()), 7, 7)
-
-    def _icone_controle(self, p: QPainter, r: QRectF, c: QColor) -> None:
-        """Controle de videogame desenhado (sem depender de fonte de emoji)."""
-        corpo = QPainterPath()
-        corpo.addRoundedRect(r, r.height() * 0.48, r.height() * 0.48)
-        p.setPen(Qt.NoPen)
-        p.setBrush(c)
-        p.drawPath(corpo)
-        furo = cor(self.t.tinta)
-        p.setBrush(furo)
-        cx, cy = r.x() + r.width() * 0.29, r.center().y()
-        p.drawRoundedRect(QRectF(cx - 4, cy - 1.1, 8, 2.2), 1, 1)
-        p.drawRoundedRect(QRectF(cx - 1.1, cy - 4, 2.2, 8), 1, 1)
-        p.drawEllipse(QPointF(r.x() + r.width() * 0.68, cy - 1.9), 1.6, 1.6)
-        p.drawEllipse(QPointF(r.x() + r.width() * 0.80, cy + 1.9), 1.6, 1.6)
-
-    # ---- cartões: cada um desenha a parte estática (texto, 1x/s) ou a dinâmica (todo quadro)
-
-    def _c_cpu(self, p: QPainter, r: QRectF, estatico: bool) -> None:
-        cpu = self.d["cpu"]
-        x, w = r.x() + INT, r.width() - 2 * INT
-        if estatico:
-            self._rotulo(p, x, r.y() + 14, "CPU", self.t.cpu, self.coletor.cpu_nome)
-            info = f"{self.coletor.cpu_threads} threads"
-            if cpu["ghz"]:
-                info = f"{num(cpu['ghz'], 2)} GHz  ·  " + info
-            self._t(p, x, r.y() + 33, w - 70, 16, info, self._f(11.5), self.T2)
-            self._grade(p, QRectF(x, r.y() + 56, w, 44))
-            return
-        self._pct_grande(p, r.right() - INT, r.y() + 10, self._v("cpu"), self.t.cpu)
-        self._grafico(p, QRectF(x, r.y() + 56, w, 44), self.h_cpu, 100.0, self.t.cpu)
-        if self.cfg["mostrar_nucleos"]:
-            n = len(cpu["nucleos"])
-            area = QRectF(x, r.y() + 110, w, 28)
-            esp = 3.0
-            lb = (area.width() - esp * (n - 1)) / n
             p.setPen(Qt.NoPen)
-            for i in range(n):
-                v = self._v(f"n{i}")
-                bx = area.x() + i * (lb + esp)
-                p.setBrush(cor(self.t.cartao, 20))
-                p.drawRoundedRect(QRectF(bx, area.y(), lb, area.height()), 2, 2)
-                h = max(2.0, area.height() * min(100.0, v) / 100.0)
-                p.setBrush(calor(mais_claro(QColor(self.t.cpu), 0.1), v, self.t))
-                p.drawRoundedRect(QRectF(bx, area.bottom() - h, lb, h), 2, 2)
+            p.setBrush(NEON)
+            p.drawRoundedRect(s, 9, 9)
+        else:
+            p.setPen(QPen(cor("#ffffff", 0.1), 1))
+            p.setBrush(TINTA)
+            p.drawRoundedRect(s.adjusted(0.5, 0.5, -0.5, -0.5), 8.5, 8.5)
+        p.setPen(Qt.NoPen)
+        if ocupado:
+            bx, bola = s.center().x(), T2
+        elif ativo:
+            bx, bola = s.right() - 9, TINTA
+        else:
+            bx, bola = s.x() + 9, T2
+        p.setBrush(bola)
+        p.drawEllipse(QPointF(bx, s.center().y()), 6, 6)
 
-    def _c_ram(self, p: QPainter, r: QRectF, estatico: bool) -> None:
-        ram = self.d["ram"]
-        x, w = r.x() + INT, r.width() - 2 * INT
-        if estatico:
-            self._rotulo(p, x, r.y() + 14, "MEMÓRIA", self.t.ram, "RAM")
-            f = self._f(22, QFont.Weight.DemiBold)
-            usada = cap(ram["usada"])
-            self._t(p, x, r.y() + 34, 140, 28, usada, f, self.T1)
-            self._t(p, x + self._larg(usada, f) + 6, r.y() + 40, 140, 20, "de " + cap(ram["total"]),
-                    self._f(12), self.T2)
-            self._t(p, x, r.y() + 82, w, 16, f"{cap(ram['livre'])} livres", self._f(11.5), self.T2)
+    def _e_gpu(self, p: QPainter) -> None:
+        L = self.L
+        gpu = self.d["gpu"] if self.d else None
+        nome = gpu["nome"] if gpu else "GPU"
+        self._titulo(p, L["gpu.cab"], nome, "Placa de vídeo NVIDIA")
+        if not gpu:
             return
-        self._pct_grande(p, r.right() - INT, r.y() + 10, self._v("ram"), self.t.ram)
-        self._barra(p, QRectF(x, r.y() + 70, w, 8), self._v("ram"), self.t.ram)
+        self._mini(p, L["gpu.heroi"], f"{self._media(self.h_gpu):.0f}", "%", "média · 1 min")
+        v, u = cap_partes(gpu["vram_usada"])
+        itens = [("vram", "VRAM", v, u, f"de {cap(gpu['vram_total'])}")]
+        temp = "—" if gpu["temp"] is None else f"{gpu['temp']}"
+        fan = gpu.get("ventoinha")
+        itens.append(("temp", "Temp.", temp, "°C" if gpu["temp"] is not None else "",
+                      f"cooler {fan}%" if fan is not None else ""))   # "ventoinha 30%" não cabe na coluna
+        watts = "—" if gpu["watts"] is None else f"{gpu['watts']:.0f}"
+        clock = f"{num(gpu['clock_mhz'] / 1000, 2)} GHz" if gpu["clock_mhz"] else ""
+        itens.append(("energia", "Energia", watts, "W" if gpu["watts"] is not None else "", clock))
+        self._stats(p, L["gpu.stats"], itens)
 
-    def _c_gpu(self, p: QPainter, r: QRectF, estatico: bool) -> None:
-        gpu = self.d["gpu"]
-        x, w = r.x() + INT, r.width() - 2 * INT
-        if estatico:
-            self._rotulo(p, x, r.y() + 14, "GPU", self.t.gpu, gpu["nome"])
-            partes = []
-            if gpu["temp"] is not None:
-                partes.append(f"{gpu['temp']} °C")
-            if gpu["watts"] is not None:
-                partes.append(f"{gpu['watts']:.0f} W")
-            if gpu["clock_mhz"]:
-                partes.append(f"{num(gpu['clock_mhz'] / 1000, 2)} GHz")
-            self._t(p, x, r.y() + 33, w - 70, 16, "  ·  ".join(partes), self._f(11.5), self.T2)
-            self._grade(p, QRectF(x, r.y() + 56, w, 38))
-            self._t(p, x, r.y() + 100, 100, 16, "VRAM", self._f(10.5, QFont.Weight.Bold, 1.2), self.T2)
-            self._t(p, x, r.y() + 100, w, 16, f"{cap(gpu['vram_usada'])} de {cap(gpu['vram_total'])}",
-                    self._f(11.5), self.T2, Qt.AlignRight)
-            return
-        self._pct_grande(p, r.right() - INT, r.y() + 10, self._v("gpu"), self.t.gpu)
-        self._grafico(p, QRectF(x, r.y() + 56, w, 38), self.h_gpu, 100.0, self.t.gpu)
-        self._barra(p, QRectF(x, r.y() + 120, w, 8), self._v("vram"), self.t.gpu)
-
-    def _c_rede(self, p: QPainter, r: QRectF, estatico: bool) -> None:
-        rede = self.d["rede"]
-        x, w = r.x() + INT, r.width() - 2 * INT
-        g = QRectF(x, r.y() + 98, w, 36)
-        if estatico:
+    def _e_rede(self, p: QPainter) -> None:
+        L = self.L
+        rede = self.d["rede"] if self.d else None
+        sub = "Medindo…"
+        if rede:
             sub = rede["tipo"]
             if rede["link_bps"]:
                 v, u = taxa_bits(rede["link_bps"])
-                sub += f"  ·  {v} {u}"
-            self._rotulo(p, x, r.y() + 14, "REDE", self.t.down, sub)
-            metade = w / 2
-            plano = float(self.cfg.get("plano_mbps", 700)) * 1e6
-            for i, (chave, titulo, acento, seta) in enumerate(
-                    (("down", "Download", self.t.down, "↓"), ("up", "Upload", self.t.up, "↑"))):
-                cx = x + i * metade
-                bps = max(0.0, self._b(chave))
-                valor, unidade = taxa_bits(bps)
-                self._t(p, cx, r.y() + 34, metade, 14, f"{seta}  {titulo}",
-                        self._f(11, QFont.Weight.Medium), cor(acento))
-                f = self._f(22, QFont.Weight.DemiBold)
-                self._t(p, cx, r.y() + 48, metade, 28, valor, f, self.T1)
-                self._t(p, cx + self._larg(valor, f) + 5, r.y() + 55, 60, 20, unidade, self._f(12), self.T2)
-                extra = taxa_bytes(bps / 8)
-                if chave == "down" and plano > 0:
-                    extra += f"  ·  {bps * 100 / plano:.0f}% do plano"
-                self._t(p, cx, r.y() + 76, metade, 14, extra, self._f(11), self.T3)
-            self._grade(p, g)
+                sub += f" · {v} {u}"
+        self._titulo(p, L["rede.cab"], "Rede", sub)
+        if not rede:
             return
-        escala = max(10e6, self._v("escala_rede", 10e6))
-        self._grafico(p, g, self.h_down, escala, self.t.down)
-        self._grafico(p, g, self.h_up, escala, self.t.up, preencher=False, largura=1.5)
+        itens = []
+        for chave, icone, rotulo in (("down", "baixar", "Download"), ("up", "subir", "Upload")):
+            bps = max(0.0, self._b(chave))
+            v, u = taxa_bits(bps)
+            itens.append((icone, rotulo, v, u, taxa_bytes(bps / 8)))
+        plano = float(self.cfg.get("plano_mbps", 0) or 0) * 1e6
+        if plano > 0:
+            pct = max(0.0, self._b("down")) * 100 / plano
+            itens.append(("plano", "Do plano", f"{pct:.0f}", "%", f"de {num(plano / 1e6, 0)} Mb/s"))
+        elif rede["link_bps"]:
+            v, u = taxa_bits(rede["link_bps"])
+            itens.append(("link", "Link", v, u, rede["tipo"]))
+        self._stats(p, L["rede.stats"], itens)
+        g = L["rede.graf"]
+        p.fillRect(QRectF(g.x(), g.bottom() - 1, g.width(), 1), FIO)
+        p.fillRect(QRectF(g.x(), g.top() + g.height() / 2, g.width(), 1), cor("#ffffff", 0.035))
 
-    def _c_disco(self, p: QPainter, r: QRectF, estatico: bool) -> None:
-        if not estatico:
-            return
-        x, w = r.x() + INT, r.width() - 2 * INT
-        self._rotulo(p, x, r.y() + 14, "ARMAZENAMENTO", self.t.disco)
-        y = r.y() + 38
-        for dk in self.d["discos"]:
-            letra = dk["letra"]
-            self._t(p, x, y, 40, 18, letra, self._f(13, QFont.Weight.DemiBold), self.T1)
+    def _e_disco(self, p: QPainter) -> None:
+        L = self.L
+        discos = self.d["discos"] if self.d else []
+        total = sum(dk["total"] for dk in discos)
+        sub = f"{len(discos)} disco{'s' if len(discos) != 1 else ''} · {cap(total)}" if discos else "Lendo…"
+        self._titulo(p, L["disco.cab"], "Armazenamento", sub)
+        fl, fr, fs, fa = (self.fontes.num(20, 400), self.fontes.ui(11, 400), self.fontes.ui(11.5, 400),
+                          self.fontes.ui(11, 400))
+        for i, dk in enumerate(discos):
+            r = L.get(f"disco.{i}")
+            if r is None:
+                break
+            wl = self._tx(p, r.x() + 2, r.top() + 14, dk["letra"], fl, T1)
+            ws = self._tx(p, r.right() - 2, r.top() + 14, f"{cap(dk['usado'])} de {cap(dk['total'])}", fs, T2, "d")
             if dk["rotulo"]:
-                self._t(p, x + 28, y, 130, 18, dk["rotulo"], self._f(11), self.T3)
-            self._t(p, x, y, w, 18, f"{cap(dk['usado'])} de {cap(dk['total'])}", self._f(11.5), self.T2,
-                    Qt.AlignRight)
-            self._barra(p, QRectF(x, y + 22, w, 6), self._b("d_" + letra), self.t.disco)
-            self._t(p, x, y + 31, w, 14, f"{cap(dk['livre'])} livres", self._f(11), self.T2)
-            ativ = f"Leitura {taxa_bytes(dk['leitura'])}  ·  Gravação {taxa_bytes(dk['escrita'])}"
-            self._t(p, x + 70, y + 31, w - 70, 14, ativ, self._f(11), self.T3, Qt.AlignRight)
-            y += 54
+                self._tx(p, r.x() + 2 + wl + 8, r.top() + 14,
+                         self._cortar(dk["rotulo"], fr, r.width() - wl - ws - 24), fr, T3)
+            barra = QRectF(r.x() + 2, r.top() + 22, r.width() - 4, 5)
+            p.setPen(Qt.NoPen)
+            p.setBrush(FIO)
+            p.drawRoundedRect(barra, 2.5, 2.5)
+            frac = max(0.0, min(1.0, dk["pct"] / 100.0))
+            if frac > 0:
+                p.setBrush(cor_carga(frac))
+                p.drawRoundedRect(QRectF(barra.x(), barra.y(), max(5.0, barra.width() * frac), 5), 2.5, 2.5)
+            wv = self._tx(p, r.x() + 2, r.top() + 43, f"{cap(dk['livre'])} livres", fs, T2)
+            ativ = f"Leitura {taxa_bytes(dk['leitura'])} · Gravação {taxa_bytes(dk['escrita'])}"
+            self._tx(p, r.right() - 2, r.top() + 43, self._cortar(ativ, fa, r.width() - wv - 16), fa, T3, "d")
 
-    def _c_proc(self, p: QPainter, r: QRectF, estatico: bool) -> None:
-        if not estatico:
+    # ------------------------------------------------------------------ camada animada (todo quadro)
+
+    def _heroi(self, p: QPainter, r: QRectF, valor: float, linha1: str, linha2: str) -> None:
+        s = f"{max(0.0, valor):.0f}"
+        px = 72 if len(s) >= 3 else 82
+        f = self.fontes.num(px, 300, -0.02)
+        base = r.bottom()
+        w = self._tx(p, r.x(), base, s, f, T1)
+        topo = base - self.fontes.medidas(f).capHeight()
+        fs = self.fontes.num(26, 300)
+        ws = self._tx(p, r.x() + w + 3, topo - 1 + self.fontes.medidas(fs).capHeight(), "%", fs, T2)
+        x = r.x() + w + 3 + ws + 8
+        self._tx(p, x, base - 17.5, linha1, self.fontes.ui(11, 500), T1)
+        self._tx(p, x, base - 3.5, linha2, self.fontes.ui(11, 400), T2)
+
+    def _linha(self, p: QPainter, r: QRectF, serie, vmax: float, c: QColor, preencher: bool = True,
+               largura: float = 1.6, ponto: bool = True) -> None:
+        n = len(serie)
+        if n < 3 or vmax <= 0:
             return
-        x, w = r.x() + INT, r.width() - 2 * INT
-        self._rotulo(p, x, r.y() + 14, "MAIORES USOS DE RAM", self.t.neutro)
-        y = r.y() + 38
-        fonte = self._f(12, QFont.Weight.Medium)
-        fm = QFontMetricsF(fonte)
-        for i, (nome, qtd, bytes_) in enumerate(self.procs[:5]):
-            rotulo = nome + (f"  ×{qtd}" if qtd > 1 else "")
-            self._t(p, x, y, w - 70, 16, fm.elidedText(rotulo, Qt.ElideRight, w - 80), fonte, self.T1)
-            self._t(p, x, y, w, 16, cap(bytes_), self._f(12, QFont.Weight.DemiBold), self.T2, Qt.AlignRight)
-            self._barra(p, QRectF(x, y + 19, w, 3), self._b(f"p{i}"), self.t.neutro, aquecer=False)
-            y += 26
+        passo = r.width() / (PONTOS - 2)
+        desl = (1 - self.e) * passo
+        alt = r.height() - 4
+        pts = [QPointF(r.right() - (n - 1 - i) * passo + desl, r.bottom() - 2 - max(0.0, min(1.0, v / vmax)) * alt)
+               for i, v in enumerate(serie)]
+        linha = QPainterPath(pts[0])
+        for a, b in zip(pts, pts[1:]):
+            mx = (a.x() + b.x()) / 2
+            linha.cubicTo(QPointF(mx, a.y()), QPointF(mx, b.y()), b)
+        p.save()
+        p.setClipRect(QRectF(r.x(), r.top() - 4, r.width(), r.height() + 8))   # o histórico desliza por baixo
+        if preencher:
+            area = QPainterPath(linha)
+            area.lineTo(pts[-1].x(), r.bottom())
+            area.lineTo(pts[0].x(), r.bottom())
+            area.closeSubpath()
+            g = QLinearGradient(0, r.top(), 0, r.bottom())
+            g.setColorAt(0, cor(c, 0.45))
+            g.setColorAt(1, cor(c, 0))
+            p.fillPath(area, g)
+        p.setBrush(Qt.NoBrush)
+        p.setPen(QPen(c, largura, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
+        p.drawPath(linha)
+        p.restore()
+        if ponto:
+            # bolinha na ponta, sempre na borda direita (a curva desliza por baixo dela)
+            a, b = pts[-2], pts[-1]
+            mx = (a.x() + b.x()) / 2
+            lo, hi = 0.0, 1.0
+            for _ in range(18):              # acha t com x(t) = borda direita na última curva
+                t = (lo + hi) / 2
+                u = 1 - t
+                x = a.x() * u ** 3 + 3 * mx * u * u * t + 3 * mx * u * t * t + b.x() * t ** 3
+                lo, hi = (t, hi) if x < r.right() else (lo, t)
+            t = (lo + hi) / 2
+            u = 1 - t
+            y = a.y() * (u ** 3 + 3 * u * u * t) + b.y() * (3 * u * t * t + t ** 3)
+            p.setPen(Qt.NoPen)
+            p.setBrush(c)
+            p.drawEllipse(QPointF(r.right(), y), 2.6, 2.6)
+
+    def _d_sis(self, p: QPainter) -> None:
+        L, cpu = self.L, self.d["cpu"]
+        ghz = f"{num(cpu['ghz'], 2)} GHz" if cpu["ghz"] else "em uso"
+        self._heroi(p, L["sis.heroi"], self._v("cpu"), "da CPU", ghz)
+        h = L["sis.heroi"]
+        self._linha(p, QRectF(h.right() - 118, h.bottom() - 34, 118, 34), self.h_cpu,
+                    max(10.0, self._v("esc_cpu", 10.0)), NEON)
+        r = L.get("sis.nucleos")
+        if r is not None:
+            n = len(cpu["nucleos"])
+            if n:
+                esp = 3.0 if n <= 40 else 2.0
+                lb = (r.width() - esp * (n - 1)) / n
+                p.setPen(Qt.NoPen)
+                for i in range(n):
+                    v = max(0.0, min(100.0, self._v(f"n{i}")))
+                    bx = r.x() + i * (lb + esp)
+                    p.setBrush(cor("#ffffff", 0.05))
+                    p.drawRoundedRect(QRectF(bx, r.y(), lb, r.height()), 1.5, 1.5)
+                    hh = max(2.0, r.height() * v / 100.0)
+                    p.setBrush(cor_carga(v / 100.0))
+                    p.drawRoundedRect(QRectF(bx, r.bottom() - hh, lb, hh), 1.5, 1.5)
+        # trilho do painel neon: barra preta até o uso e bolinha com anel neon
+        r = L["sis.neon"]
+        x0, x1 = r.x() + 14, r.right() - 14
+        frac = max(0.0, min(1.0, self._v("ram") / 100.0))
+        meio = r.top() + 44
+        p.setPen(Qt.NoPen)
+        p.setBrush(cor(TINTA, 0.75))
+        p.drawRoundedRect(QRectF(x0, meio - 0.75, x1 - x0, 1.5), 0.75, 0.75)
+        p.setBrush(TINTA)
+        p.drawRoundedRect(QRectF(x0, meio - 3, max(6.0, (x1 - x0) * frac), 6), 3, 3)
+        kx = x0 + (x1 - x0) * frac
+        p.setBrush(NEON)
+        p.drawEllipse(QPointF(kx, meio), 8.5, 8.5)
+        p.setBrush(TINTA)
+        p.drawEllipse(QPointF(kx, meio), 6, 6)
+
+    def _d_gpu(self, p: QPainter) -> None:
+        h = self.L["gpu.heroi"]
+        self._heroi(p, h, self._v("gpu"), "da GPU", "em uso")
+        self._linha(p, QRectF(h.right() - 118, h.bottom() - 34, 118, 34), self.h_gpu,
+                    max(10.0, self._v("esc_gpu", 10.0)), NEON)
+
+    def _d_rede(self, p: QPainter) -> None:
+        g = self.L["rede.graf"]
+        escala = max(10e6, self._v("escala_rede", 10e6))
+        self._linha(p, g, self.h_down, escala, NEON)
+        self._linha(p, g, self.h_up, escala, cor(T2, 0.9), preencher=False, largura=1.3, ponto=True)

@@ -54,7 +54,7 @@ class DialogoAtivar(QDialog):
             QPushButton {{ font-family: Inter; font-size: 13px; padding: 8px 18px; border-radius: 8px;
                            color: {texto}; background: {_rgba(t.cartao, 18)}; border: 1px solid {_rgba(t.cartao, 40)}; }}
             QPushButton:hover {{ background: {_rgba(t.cartao, 30)}; }}
-            QPushButton#ativar {{ border: none; color: #FFFFFF; font-weight: 600;
+            QPushButton#ativar {{ border: none; color: {getattr(t, 'texto_botao', '#FFFFFF')}; font-weight: 600;
                                   background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 {t.marca[1]}, stop:1 {t.marca[0]}); }}
         """)
 
@@ -231,7 +231,7 @@ class Controle(QObject):
     def _ao_planejar(self, plano: modo_jogo.Plano, uac: bool) -> None:
         escolhas = dict(self.cfg.get("modo_jogo_escolhas") or {})
         if self.cfg["modo_jogo_confirmar"]:
-            dlg = DialogoAtivar(plano, self.janela.t, escolhas, uac)
+            dlg = DialogoAtivar(plano, self.janela.paleta, escolhas, uac)
             if dlg.exec() != QDialog.Accepted:
                 self.ocupado = ""
                 self._atualizar()

@@ -61,7 +61,8 @@ def main() -> int:
     app.setQuitOnLastWindowClosed(False)
     app.setApplicationName("Monitor do PC")
     app.setWindowIcon(icone.icone(temas.obter(config.Config().get("tema"))))
-    for arq in glob.glob(os.path.join(config.RAIZ, "fontes", "*.otf")):
+    for arq in sorted(glob.glob(os.path.join(config.RAIZ, "fontes", "*.otf"))
+                      + glob.glob(os.path.join(config.RAIZ, "fontes", "*.ttf"))):
         QFontDatabase.addApplicationFont(arq)
 
     cfg = config.Config()
@@ -81,27 +82,17 @@ def main() -> int:
             janela.hide()
         else:
             janela.show()
-            winapi.enviar_para_o_fundo(janela._hwnd)
+            janela.aplicar_fixacao()
+            janela.garantir_visivel()
 
-    def definir(chave: str, valor, reposicionar: bool = False, layout: bool = False,
-                vidro: bool = False) -> None:
+    def definir(chave: str, valor, reposicionar: bool = False, layout: bool = False) -> None:
         cfg[chave] = valor
         cfg.salvar()
         if layout:
             janela.recalcular_layout()
         if reposicionar or layout:
             janela.posicionar()
-        if vidro:
-            janela.aplicar_vidro()
-        janela.update()
-
-    def escolher_tema(id_: str) -> None:
-        cfg["tema"] = id_
-        cfg.salvar()
-        tema = temas.obter(id_)
-        janela.definir_tema(tema)
-        bandeja.setIcon(icone.icone(tema))
-        app.setWindowIcon(icone.icone(tema))
+        janela.pedir_completo()
 
     def escolher_monitor(nome: str) -> None:
         cfg["livre"] = False
@@ -118,6 +109,10 @@ def main() -> int:
         else:
             m.addAction("Desativar Modo Jogo" if controle.ativo else "Ativar Modo Jogo", controle.alternar)
         m.addAction("Ocultar widget" if janela.isVisible() else "Mostrar widget", alternar_visivel)
+        a = m.addAction("Fixar sobre outras janelas")
+        a.setCheckable(True)
+        a.setChecked(bool(cfg["fixado"]))
+        a.triggered.connect(lambda _=False: janela.alternar_fixado())
         m.addSeparator()
 
         sub = m.addMenu("Monitor")
@@ -148,23 +143,7 @@ def main() -> int:
         a.triggered.connect(lambda v: definir("travado", bool(v)))
 
         m.addSeparator()
-        sub = m.addMenu("Tema")
-        grupo = QActionGroup(sub)
-        for id_, tema in temas.listar().items():
-            act = QAction(tema.nome, sub, checkable=True, checked=(janela.t.id == id_))
-            act.setToolTip(tema.descricao)
-            act.triggered.connect(lambda _=False, i=id_: escolher_tema(i))
-            grupo.addAction(act)
-            sub.addAction(act)
-
         sub = m.addMenu("Aparência")
-        grupo = QActionGroup(sub)
-        for chave, rot in (("leve", "Vidro leve"), ("medio", "Vidro médio"), ("fosco", "Vidro fosco")):
-            a = QAction(rot, sub, checkable=True, checked=(cfg["vidro"] == chave))
-            a.triggered.connect(lambda _=False, c=chave: definir("vidro", c, vidro=True))
-            grupo.addAction(a)
-            sub.addAction(a)
-        sub.addSeparator()
         grupo = QActionGroup(sub)
         for chave, rot in (("coluna", "Layout em coluna"), ("painel", "Layout em painel largo")):
             a = QAction(rot, sub, checkable=True, checked=(cfg["layout"] == chave))
@@ -200,17 +179,13 @@ def main() -> int:
         return menu_ctx
 
     janela = MonitorWidget(cfg, coletor, processos, criar_menu)
-    if "--teste-topo" in sys.argv:       # só para capturas de tela durante o desenvolvimento
-        janela.setWindowFlag(Qt.WindowStaysOnBottomHint, False)
-        janela.setWindowFlag(Qt.WindowStaysOnTopHint, True)
+    if "--teste-topo" in sys.argv:       # só para testes: sempre por cima, sem mudar a configuração
         janela.teste_topo = True
     janela.winId()                      # cria o HWND antes de mostrar
     janela.posicionar()
     janela.show()
     janela.preparar_nativo()
     janela.posicionar()
-    if janela.teste_topo:
-        winapi.trazer_ao_topo(janela._hwnd)
 
     bandeja = QSystemTrayIcon(icone.icone(janela.t), app)
     bandeja.setToolTip("Monitor do PC")
@@ -224,8 +199,22 @@ def main() -> int:
     if "--modo-jogo" in sys.argv:
         QTimer.singleShot(1500, controle.alternar)
 
-    app.screenAdded.connect(lambda *_: QTimer.singleShot(800, janela.posicionar))
-    app.screenRemoved.connect(lambda *_: QTimer.singleShot(800, janela.posicionar))
+    # Monitor ligado/desligado (o vertical some quando dorme), resolução ou escala nova: o widget
+    # volta para o monitor dele, ou para dentro de um monitor visível.
+    reposicionar = QTimer(app)
+    reposicionar.setSingleShot(True)
+    reposicionar.setInterval(800)
+    reposicionar.timeout.connect(janela.reposicionar)
+
+    def vigiar_tela(t) -> None:
+        for sinal in (t.geometryChanged, t.availableGeometryChanged, t.logicalDotsPerInchChanged):
+            sinal.connect(lambda *_: reposicionar.start())
+
+    for t in app.screens():
+        vigiar_tela(t)
+    app.screenAdded.connect(lambda t: (vigiar_tela(t), reposicionar.start()))
+    app.screenRemoved.connect(lambda *_: reposicionar.start())
+    app.primaryScreenChanged.connect(lambda *_: reposicionar.start())
 
     estado = {"coberto": False, "ticks": 0}
 
@@ -245,7 +234,13 @@ def main() -> int:
         if reiniciar_se_janela_morreu():
             return
         controle.tick(estado["ticks"])  # Modo Jogo: prioridade ao jogo em tela cheia
-        if (janela.d is not None and not janela.teste_topo and janela.isVisible()
+        if janela.isVisible():
+            # Fixado por cima: um jogo em tela cheia no mesmo monitor tem prioridade (o widget sai
+            # de cima dele e volta sozinho quando o jogo fecha ou sai da tela cheia).
+            janela.suspender(janela.quer_topo() and winapi.tela_cheia_no_monitor_de(janela._hwnd))
+            if estado["ticks"] % 3 == 0:
+                janela.garantir_visivel()
+        if (janela.d is not None and not janela.no_topo and janela.isVisible()
                 and winapi.coberto_por_janela(janela._hwnd)):
             if not estado["coberto"]:
                 estado["coberto"] = True

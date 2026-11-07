@@ -1,7 +1,7 @@
 <h1 align="center">GlassPulse</h1>
 
 <p align="center">
-  <b>Monitor do PC em vidro acrílico para a área de trabalho do Windows 11.</b><br>
+  <b>Monitor do PC para a área de trabalho do Windows 11, em cards pretos com um painel neon.</b><br>
   CPU, memória, GPU NVIDIA, rede e discos em tempo real — bonito, leve e sem poluir a barra de tarefas.
 </p>
 
@@ -13,21 +13,21 @@
 </p>
 
 <p align="center">
-  <img src="docs/temas.png" alt="GlassPulse nos temas Noite, Sukuna e Gojo" width="900">
+  <img src="docs/painel.png" alt="GlassPulse: cards pretos em formato de pasta e painel neon amarelo" width="760">
 </p>
 
-> **English:** GlassPulse is a featherlight, glassy system-monitor widget for the Windows 11 desktop
-> (acrylic blur, rounded corners, dark theme). Live CPU / per-core, RAM, NVIDIA GPU (NVML), network and
-> disk usage in ~20 MB of RAM and ~0.2 % of total CPU. The interface is in Brazilian Portuguese.
+> **English:** GlassPulse is a featherlight system-monitor widget for the Windows 11 desktop
+> (black folder-shaped cards, thin condensed numbers and one yellow neon panel). Live CPU / per-core, RAM, NVIDIA GPU (NVML), network and
+> disk usage in ~26 MB of RAM and ~0.2 % of total CPU. The interface is in Brazilian Portuguese.
 
 ## Destaques
 
-- **Vidro de verdade:** acrílico do Windows 11 (desfoque do que está atrás), cantos redondos do DWM, tema escuro com acentos por categoria e tipografia Inter com números tabulares.
-- **Fica na área de trabalho:** atrás de todas as janelas, sem botão na barra de tarefas, fora do Alt+Tab, sem roubar foco. Arraste para posicionar; a posição é salva.
-- **Temas:** Noite (padrão), **Sukuna** e **Gojo** já inclusos — e criar o seu é só escrever um JSON de ~20 linhas. Troca na hora pelo menu, sem reiniciar.
+- **Visual novo:** cards pretos em formato de pasta com "•••" no recorte, números grandes em Barlow Semi Condensed Light, rótulos pequenos em caixa alta e **um** painel neon amarelo (`#ffe83a`) para a memória. Sem sombra nem halo em volta: só a borda de 1 px (detalhes em [Visual](#visual)).
+- **Fixar (alfinete):** ligado por padrão, deixa o widget sempre por cima das janelas. Desligado, ele fica na área de trabalho, atrás de tudo. Jogo em tela cheia no mesmo monitor tem prioridade: o widget sai de cima e volta quando o jogo fecha. Sem botão na barra de tarefas, fora do Alt+Tab, sem roubar foco.
+- **Sempre visível:** arraste segurando em qualquer parte do card (fora dos botões); ele fica inteiro dentro do monitor onde está o cursor. Ao abrir, ao mudar de tamanho e quando um monitor desliga ou muda de resolução/escala, volta para dentro de um monitor visível. A parte transparente da janela não pega clique.
 - **Multi-monitor:** escolha o monitor e o canto pelo menu (ou arraste — ele "gruda" nas bordas). Layout em **coluna** (ideal para monitor vertical) ou **painel largo**.
 - **Números que batem com o Gerenciador de Tarefas:** usa os mesmos contadores do Windows (PDH) — uso de CPU "Processor Utility", memória "Em uso", rede e atividade de disco.
-- **Leve de verdade:** ~20 MB de RAM (≈11 MB na coluna *Memória* do Gerenciador), ~0,2 % da CPU total. Prioridade abaixo do normal, sem timers de 1 ms, e **para de pintar** quando um jogo/app em tela cheia cobre o widget.
+- **Leve de verdade:** ~26 MB de RAM (≈16 MB na coluna *Memória* do Gerenciador), ~0,2 % da CPU total. Prioridade abaixo do normal, sem timers de 1 ms, e **para de pintar** quando um jogo/app em tela cheia cobre o widget.
 - **Animações suaves:** gráficos que deslizam, barras e números que "rolam" a cada amostra e depois o widget fica parado.
 
 ### O que mostra
@@ -41,7 +41,7 @@
 | **Armazenamento** | todos os discos fixos: usado / livre e leitura/gravação ao vivo |
 | **Maiores usos de RAM** | por programa (conjunto de trabalho privado, como o Gerenciador) e tempo ligado |
 
-Os números mudam de cor conforme apertam: âmbar acima de ~72 % e coral acima de ~88 %.
+Tudo fica cinza no uso normal; barras de núcleos e discos acendem no neon acima de ~80 %, e o painel da memória avisa "alta" / "quase cheia".
 
 ### Layouts
 
@@ -51,39 +51,24 @@ Os números mudam de cor conforme apertam: âmbar acima de ~72 % e coral acima d
   <img src="docs/painel.png" alt="Layout em painel largo" width="560">
 </p>
 
-## Temas
+## Visual
 
-Menu (clique direito) → **Tema**. Inclusos:
+O widget segue o mesmo guia de estilo dos outros widgets de área de trabalho do autor. O essencial:
 
-| Tema | Visual |
-|---|---|
-| **Noite** | violeta e ciano sobre vidro azul-noite (o original) |
-| **Sukuna** | vinho-negro, carmesim, rosa-cabelo e osso; ao esquentar o número vira brasa e depois branco incandescente |
-| **Gojo** | azul-gelo, roxo e branco sobre vidro azul-marinho |
+- **Cards em formato de pasta:** pretos (`#1f1f23 → #111113 → #09090a`), cantos de 22 px, uma aba mais alta à
+  esquerda e um recorte no canto direito com "•••", que abre o menu. Borda de 1 px e nenhuma sombra ou halo
+  em volta.
+- **Tipografia:** números em Barlow Semi Condensed Light, finos e condensados (o principal de cada card
+  bem grande, os das estatísticas menores); rótulos pequenos em caixa alta e textos em Inter. Texto em
+  `#f1f1f2`, `#a3a3aa` e `#6c6c74`.
+- **Um neon só:** cada widget tem uma cor, e este é o **amarelo `#ffe83a`**. Ela aparece em um único painel
+  (aqui, a memória), com brilho que fica dentro do card. O resto é cinza e só acende no neon quando passa de
+  ~80 %.
+- **Ícones em traço** (SVG), na mesma espessura do texto.
 
-**Crie o seu:** salve um `.json` em `%APPDATA%\MonitorPC\temas\` (o nome do arquivo é o id do tema) e ele aparece no menu.
-Qualquer campo que faltar ou tiver cor inválida herda do tema Noite, e um arquivo quebrado é ignorado.
+Não há mais temas de cores; o campo `"tema"` do `config.json` só escolhe a arte do ícone da bandeja
+(arquivos em [`temas/`](temas/)).
 
-```json
-{
-  "nome": "Meu tema",
-  "descricao": "Opcional: aparece como dica no menu.",
-  "cores": { "cpu": "#FF7FA3", "ram": "#E8455E", "gpu": "#FF9A5C", "download": "#F2E6D6",
-             "upload": "#D85A84", "disco": "#E6BC7E", "neutro": "#B9A6AB" },
-  "alerta": { "medio": "#FF9F43", "critico": "#FFF0C8" },
-  "vidro": { "tinta": "#14040A",
-             "lavagem1": "#B0102A", "lavagem1_alpha": 78,
-             "lavagem2": "#FF7FA3", "lavagem2_alpha": 30,
-             "cartao": "#FFD9E0", "borda": "#FFB3C0" },
-  "texto": "#FFF1EA",
-  "marca": ["#FF7FA3", "#C1121F"],
-  "icone": "assets/icone-sukuna.png"
-}
-```
-
-`alerta` são as cores para quando o uso passa de ~72 % (`medio`) e de ~94 % (`critico`); `marca` é o gradiente do
-ícone quando não há arte em `icone` (caminho relativo à pasta do projeto, usado na bandeja e no cabeçalho).
-Os temas do projeto ficam em [`temas/`](temas/) — bons pontos de partida.
 ## Instalação
 
 Requisitos: **Windows 11**, **Python 3.12+** (com `pythonw.exe`). Placa NVIDIA é opcional (sem ela, o bloco de GPU some).
@@ -104,15 +89,16 @@ Para abrir agora: dê dois cliques no atalho **Monitor do PC** ou rode `pythonw 
 
 | Ação | Como |
 |---|---|
-| Mover | arraste o widget (posição salva) |
-| Monitor / canto / layout / vidro | clique direito no widget ou no ícone da bandeja |
+| Mover | segure em qualquer parte de um card (fora dos botões) e arraste; a posição fica salva e ele não sai da tela |
+| Fixar sobre as janelas | alfinete no cabeçalho, ou menu → *Fixar sobre outras janelas* |
+| Monitor / canto / layout | "•••" no topo de qualquer card, clique direito no widget ou no ícone da bandeja |
 | Travar posição | menu → *Travar posição* |
 | Ocultar / mostrar | clique esquerdo no ícone da bandeja |
 | Fechar | menu → **Sair** ou `pythonw monitor_pc.pyw --sair` |
 | Iniciar com o Windows | menu → *Iniciar com o Windows* |
 | Modo Jogo | botão logo abaixo do cabeçalho, menu → *Ativar Modo Jogo* ou `pythonw monitor_pc.pyw --modo-jogo` |
 
-Configuração em `%APPDATA%\MonitorPC\config.json` (a maior parte pelo menu, inclusive o tema). Um campo só existe no arquivo:
+Configuração em `%APPDATA%\MonitorPC\config.json` (a maior parte pelo menu). Um campo só existe no arquivo:
 `"plano_mbps"` — a velocidade contratada, em Mb/s, para o "% do plano" da rede (`0` esconde). Erros vão para `%APPDATA%\MonitorPC\erro.log`.
 
 ## Modo Jogo
@@ -150,8 +136,9 @@ já voltam com o Windows). Para ver o que seria feito, sem fazer nada: `python m
 ## Como funciona
 
 - **Métricas:** PDH (`Processor Information`, `Network Interface`, `PhysicalDisk`), NVML por `ctypes` (`nvmlDeviceGetMemoryInfo_v2`, igual ao `nvidia-smi`) e Toolhelp + `PrivateWorkingSetSize` para os processos. `psutil` cobre RAM, discos e o plano B.
-- **Janela:** `SetWindowCompositionAttribute` (acrílico) + `DWMWA_WINDOW_CORNER_PREFERENCE`; estilo `WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE`; Z-order no fundo; a área de trabalho (Progman) é a *dona* da janela, para que ela acompanhe o Win+D.
-- **Pintura em duas camadas:** fundo + textos são refeitos 1×/s num `QPixmap`; gráficos e barras são desenhados por cima a 25 fps só durante ~0,7 s após cada amostra. Repaint parcial foi descartado: janelas translúcidas com acrílico deixam retângulos escuros.
+- **Janela:** transparente por pixel (janela *layered*: o que é transparente não pega clique), sem cantos/borda/sombra do DWM; estilo `WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE`. Fixada: `HWND_TOPMOST`. Solta: Z-order no fundo, com a área de trabalho (Progman) como *dona* da janela, para que ela acompanhe o Win+D.
+- **Pintura em camadas:** os cards, ícones e o painel neon ficam num `QPixmap` refeito só quando o layout ou a escala do monitor mudam; os textos, num segundo `QPixmap` refeito a cada amostra (1×/s); números grandes, gráficos e barras são desenhados por cima a 25 fps só durante ~0,7 s após cada amostra. O brilho do neon é uma curva gaussiana (como um `box-shadow`) desenhada em retângulos concêntricos e recortada pelo contorno do card.
+- **Sempre na tela:** o arraste usa a área útil do monitor sob o cursor e a janela tem tamanho em múltiplos de 4 px, para não sobrar meio pixel fora da borda a 125/150/175 %. Uma checagem depois de cada movimento, outra a cada 3 s e os sinais de monitor ligado/desligado e de mudança de resolução ou escala trazem o widget de volta se ele ficar fora. Se o layout escolhido não couber no monitor, ele troca sozinho entre coluna e painel.
 - **Robustez:** instância única (mutex), watchdog que se relança se o Explorer reiniciar, `--sair` fecha a instância em execução.
 
 Estrutura: `monitor_pc.pyw` (entrada) · `src/monitor/` (`coletores.py`, `widget.py`, `temas.py`, `winapi.py`, `app.py`, `config.py`, `icone.py`, `modo_jogo.py`, `modo_jogo_admin.py`, `modo_jogo_ui.py`) · `temas/` · `assets/` · `fontes/` · `ferramentas/gerar_icone.py` · `instalar.ps1`.
@@ -160,10 +147,10 @@ Estrutura: `monitor_pc.pyw` (entrada) · `src/monitor/` (`coletores.py`, `widget
 
 - **Temperatura da CPU não aparece:** no Windows só dá para ler com driver de kernel (ex.: LibreHardwareMonitor, como administrador). Fica como possível extensão opcional.
 - GPU: só NVIDIA por enquanto (AMD/Intel Arc seriam um novo coletor).
-- Pensado para Windows 11 (acrílico + cantos do DWM). O comportamento com **Win+D** depende da janela ser "dona" do Progman e ainda não foi validado em todas as builds — se o widget sumir nesse atalho, abra uma issue.
-- `--teste-topo` (dev) coloca a janela acima das outras, útil para tirar capturas de tela.
+- Com o alfinete desligado, o comportamento com **Win+D** depende da janela ser "dona" do Progman e ainda não foi validado em todas as builds.
+- `--teste-topo` (dev) deixa a janela por cima das outras sem mudar a configuração.
 
 ## Licença e créditos
 
-Código sob licença [MIT](LICENSE). Os ícones (`assets/`) foram gerados com IA (GPT Image, via Codex CLI) e tratados por `ferramentas/gerar_icone.py`. A fonte [Inter](https://github.com/rsms/inter) (em `fontes/`) segue a
-[SIL Open Font License 1.1](fontes/OFL.txt). Interface com [Qt for Python (PySide6)](https://doc.qt.io/qtforpython-6/) — instalado via pip, não redistribuído aqui.
+Código sob licença [MIT](LICENSE). Os ícones (`assets/`) foram gerados com IA (GPT Image, via Codex CLI) e tratados por `ferramentas/gerar_icone.py`. As fontes [Inter](https://github.com/rsms/inter) e [Barlow Semi Condensed](https://github.com/jpt/barlow) (em `fontes/`) seguem a
+SIL Open Font License 1.1 ([Inter](fontes/OFL.txt), [Barlow](fontes/OFL-Barlow.txt)). Interface com [Qt for Python (PySide6)](https://doc.qt.io/qtforpython-6/) — instalado via pip, não redistribuído aqui.
