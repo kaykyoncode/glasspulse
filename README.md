@@ -23,7 +23,8 @@
 ## Destaques
 
 - **Visual novo:** cards pretos em formato de pasta com "•••" no recorte, números grandes em Barlow Semi Condensed Light, rótulos pequenos em caixa alta e **um** painel neon amarelo (`#ffe83a`) para a memória. Sem sombra nem halo em volta: só a borda de 1 px (detalhes em [Visual](#visual)).
-- **Fixar (alfinete):** ligado por padrão, deixa o widget sempre por cima das janelas. Desligado, ele fica na área de trabalho, atrás de tudo. Jogo em tela cheia no mesmo monitor tem prioridade: o widget sai de cima e volta quando o jogo fecha. Sem botão na barra de tarefas, fora do Alt+Tab, sem roubar foco.
+- **Nunca cobre seus apps:** por padrão o widget fica atrás de todos os apps, logo acima da área de trabalho, mesmo depois de clicar nele ou arrastá-lo. Aberto de propósito (ícone da bandeja ou abrindo o atalho de novo), aparece na frente até você clicar em outra janela e então volta para trás. Sem botão na barra de tarefas e fora do Alt+Tab.
+- **Fixar (alfinete):** desligado por padrão. Ligado, deixa o widget sempre por cima das janelas; jogo em tela cheia no mesmo monitor tem prioridade (o widget sai de cima e volta quando o jogo fecha).
 - **Sempre visível:** arraste segurando em qualquer parte do card (fora dos botões); ele fica inteiro dentro do monitor onde está o cursor. Ao abrir, ao mudar de tamanho e quando um monitor desliga ou muda de resolução/escala, volta para dentro de um monitor visível. A parte transparente da janela não pega clique.
 - **Multi-monitor:** escolha o monitor e o canto pelo menu (ou arraste — ele "gruda" nas bordas). Layout em **coluna** (ideal para monitor vertical) ou **painel largo**.
 - **Números que batem com o Gerenciador de Tarefas:** usa os mesmos contadores do Windows (PDH) — uso de CPU "Processor Utility", memória "Em uso", rede e atividade de disco.
@@ -90,15 +91,16 @@ Para abrir agora: dê dois cliques no atalho **Monitor do PC** ou rode `pythonw 
 | Ação | Como |
 |---|---|
 | Mover | segure em qualquer parte de um card (fora dos botões) e arraste; a posição fica salva e ele não sai da tela |
-| Fixar sobre as janelas | alfinete no cabeçalho, ou menu → *Fixar sobre outras janelas* |
+| Fixar sobre as janelas | alfinete no cabeçalho, ou menu → *Fixar sobre outras janelas* (desligado por padrão; ao soltar, aparece "Atrás dos seus apps de novo.") |
 | Monitor / canto / layout | "•••" no topo de qualquer card, clique direito no widget ou no ícone da bandeja |
 | Travar posição | menu → *Travar posição* |
-| Ocultar / mostrar | clique esquerdo no ícone da bandeja |
+| Ver por cima dos apps / ocultar | clique esquerdo no ícone da bandeja: o 1º clique traz o widget para a frente (até você clicar em outra janela), o seguinte oculta |
 | Fechar | menu → **Sair** ou `pythonw monitor_pc.pyw --sair` |
 | Iniciar com o Windows | menu → *Iniciar com o Windows* |
 | Modo Jogo | botão logo abaixo do cabeçalho, menu → *Ativar Modo Jogo* ou `pythonw monitor_pc.pyw --modo-jogo` |
 
-Configuração em `%APPDATA%\MonitorPC\config.json` (a maior parte pelo menu). Um campo só existe no arquivo:
+Configuração em `%APPDATA%\MonitorPC\config.json` (a maior parte pelo menu). O campo `"versao"` marca as
+migrações já feitas (a 2 desligou uma vez o alfinete de quem o tinha ligado só por ser o padrão antigo). Um campo só existe no arquivo:
 `"plano_mbps"` — a velocidade contratada, em Mb/s, para o "% do plano" da rede (`0` esconde). Erros vão para `%APPDATA%\MonitorPC\erro.log`.
 
 ## Modo Jogo
@@ -136,7 +138,8 @@ já voltam com o Windows). Para ver o que seria feito, sem fazer nada: `python m
 ## Como funciona
 
 - **Métricas:** PDH (`Processor Information`, `Network Interface`, `PhysicalDisk`), NVML por `ctypes` (`nvmlDeviceGetMemoryInfo_v2`, igual ao `nvidia-smi`) e Toolhelp + `PrivateWorkingSetSize` para os processos. `psutil` cobre RAM, discos e o plano B.
-- **Janela:** transparente por pixel (janela *layered*: o que é transparente não pega clique), sem cantos/borda/sombra do DWM; estilo `WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE`. Fixada: `HWND_TOPMOST`. Solta: Z-order no fundo, com a área de trabalho (Progman) como *dona* da janela, para que ela acompanhe o Win+D.
+- **Janela:** transparente por pixel (janela *layered*: o que é transparente não pega clique), sem cantos/borda/sombra do DWM; estilo `WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE`.
+- **Ordem das janelas:** solta (padrão), recebe `SetWindowPos(HWND_BOTTOM, … SWP_NOACTIVATE | SWP_NOOWNERZORDER)` ao abrir, ao ser ativada, no fim do arraste, depois de um menu e ao soltar o alfinete; além disso, qualquer outra mudança de Z-order que o Windows ou o Qt pedirem é trocada por `HWND_BOTTOM` em `WM_WINDOWPOSCHANGING`. O Explorer mantém a área de trabalho (Progman) no fundo, então o widget fica logo acima dela; Progman também é a *dona* da janela, para ela acompanhar o Win+D. Fixada: `HWND_TOPMOST`; ao soltar, `HWND_NOTOPMOST` e depois `HWND_BOTTOM`. Para aparecer na frente sem ficar "sempre por cima", liga e desliga o `HWND_TOPMOST` (um `HWND_TOP` vindo de um processo em segundo plano não passa da janela em foco), tenta pegar o foco e volta para o fundo quando o foco vai para outra janela.
 - **Pintura em camadas:** os cards, ícones e o painel neon ficam num `QPixmap` refeito só quando o layout ou a escala do monitor mudam; os textos, num segundo `QPixmap` refeito a cada amostra (1×/s); números grandes, gráficos e barras são desenhados por cima a 25 fps só durante ~0,7 s após cada amostra. O brilho do neon é uma curva gaussiana (como um `box-shadow`) desenhada em retângulos concêntricos e recortada pelo contorno do card.
 - **Sempre na tela:** o arraste usa a área útil do monitor sob o cursor e a janela tem tamanho em múltiplos de 4 px, para não sobrar meio pixel fora da borda a 125/150/175 %. Uma checagem depois de cada movimento, outra a cada 3 s e os sinais de monitor ligado/desligado e de mudança de resolução ou escala trazem o widget de volta se ele ficar fora. Se o layout escolhido não couber no monitor, ele troca sozinho entre coluna e painel.
 - **Robustez:** instância única (mutex), watchdog que se relança se o Explorer reiniciar, `--sair` fecha a instância em execução.

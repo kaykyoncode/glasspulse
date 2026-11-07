@@ -39,6 +39,7 @@ def main() -> int:
         winapi.avisar_instancia(winapi.MSG_SAIR)
         return 0
     if ja_existe:
+        winapi.permitir_primeiro_plano()     # a instância que já roda pode aparecer na frente com foco
         winapi.avisar_instancia(winapi.MSG_MODO_JOGO if "--modo-jogo" in sys.argv else winapi.MSG_MOSTRAR)
         return 0
 
@@ -81,9 +82,17 @@ def main() -> int:
         if janela.isVisible():
             janela.hide()
         else:
-            janela.show()
-            janela.aplicar_fixacao()
+            janela.mostrar_na_frente()      # aberto de propósito: na frente até o foco mudar
             janela.garantir_visivel()
+
+    def clique_bandeja() -> None:
+        # Solto, o widget pode estar escondido atrás dos apps: o 1º clique traz para a frente,
+        # o seguinte oculta.
+        if janela.isVisible() and not janela.esta_na_frente():
+            janela.mostrar_na_frente()
+            janela.garantir_visivel()
+        else:
+            alternar_visivel()
 
     def definir(chave: str, valor, reposicionar: bool = False, layout: bool = False) -> None:
         cfg[chave] = valor
@@ -191,7 +200,7 @@ def main() -> int:
     bandeja.setToolTip("Monitor do PC")
     bandeja.setContextMenu(menu_bandeja)
     bandeja.activated.connect(
-        lambda r: alternar_visivel() if r == QSystemTrayIcon.ActivationReason.Trigger else None)
+        lambda r: clique_bandeja() if r == QSystemTrayIcon.ActivationReason.Trigger else None)
     bandeja.show()
 
     controle = modo_jogo_ui.Controle(cfg, janela, bandeja)

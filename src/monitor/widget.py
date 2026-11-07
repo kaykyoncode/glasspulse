@@ -4,12 +4,13 @@ condensados, um único painel neon (amarelo) e gráficos/barras animados a cada 
 from __future__ import annotations
 
 import math
+import os
 import time
 from collections import deque
 from ctypes import wintypes as wt
 from datetime import datetime
 
-from PySide6.QtCore import QByteArray, QPoint, QPointF, QRectF, Qt, QTimer
+from PySide6.QtCore import QByteArray, QEvent, QPoint, QPointF, QRectF, Qt, QTimer
 from PySide6.QtGui import (QColor, QCursor, QFont, QFontDatabase, QFontMetricsF, QGuiApplication, QImage,
                            QLinearGradient, QPainter, QPainterPath, QPen, QPixmap, QRadialGradient)
 from PySide6.QtSvg import QSvgRenderer
@@ -262,6 +263,12 @@ class MonitorWidget(QWidget):
         self.teste_topo = False                # --teste-topo: sempre por cima, sem salvar nada
         self.suspenso = False                  # jogo em tela cheia no mesmo monitor: sai de cima dele
         self.no_topo = False
+        # Aberto de propósito (bandeja / 2ª instância) com o alfinete desligado: fica na frente dos
+        # apps até o foco mudar para outra janela, e então volta para trás deles.
+        self._na_frente = False
+        self._frente_desde = 0.0
+        self._fg_frente = 0
+        self._com_foco = False
         self._aviso: tuple[str, float] | None = None
         self._fundo: QPixmap | None = None     # cards, logos e painel neon (muda só com layout/escala)
         self._cache: QPixmap | None = None     # fundo + textos (refeito a cada amostra)
@@ -284,6 +291,10 @@ class MonitorWidget(QWidget):
         self._vigia.setSingleShot(True)
         self._vigia.setInterval(600)
         self._vigia.timeout.connect(self.garantir_visivel)
+
+        self._frente = QTimer(self)
+        self._frente.setInterval(400)
+        self._frente.timeout.connect(self._vigiar_frente)
 
         self.recalcular_layout()
 
@@ -498,7 +509,10 @@ class MonitorWidget(QWidget):
         return self.quer_topo() and not self.suspenso
 
     def aplicar_fixacao(self) -> None:
-        """Fixado: sempre por cima das janelas. Solto: fica na área de trabalho, atrás das janelas."""
+        """Fixado: sempre por cima das janelas (HWND_TOPMOST). Solto (padrão): atrás de todos os apps,
+        logo acima da área de trabalho (HWND_NOTOPMOST e depois HWND_BOTTOM)."""
+        self._na_frente = False
+        self._frente.stop()
         if not self._hwnd:
             return
         self.no_topo = self.fixado_efetivo()
@@ -510,11 +524,63 @@ class MonitorWidget(QWidget):
             winapi.fixar_ao_desktop(self._hwnd)
             winapi.enviar_para_o_fundo(self._hwnd)
 
+    def _reforcar_ordem(self) -> None:
+        """O Windows traz para a frente a janela ativada/clicada: devolve o widget ao lugar dele."""
+        if not self._hwnd or not self.isVisible():
+            return
+        if self.no_topo:
+            winapi.trazer_ao_topo(self._hwnd)
+        elif not self._na_frente:
+            winapi.enviar_para_o_fundo(self._hwnd)
+
+    def mostrar_na_frente(self) -> None:
+        """Aberto de propósito (ícone da bandeja ou 2ª instância). Fixado: só garante o topo. Solto:
+        aparece na frente dos apps e volta para trás deles quando o foco muda de janela."""
+        if not self.isVisible():
+            self.show()
+        self.aplicar_fixacao()
+        if not self._hwnd or self.no_topo:
+            return
+        self._na_frente = True
+        self._frente_desde = time.monotonic()
+        self._fg_frente = 0
+        winapi.soltar_do_desktop(self._hwnd)   # dona = área de trabalho prenderia o widget no fundo
+        winapi.trazer_a_frente(self._hwnd)
+        # Com o foco no widget, qualquer clique em outro app (inclusive no que já estava em uso)
+        # conta como "perdeu o foco". Sem permissão do Windows, vale a troca de janela em foco.
+        self._com_foco = winapi.tomar_foco(self._hwnd)
+        self._frente.start()
+
+    def esta_na_frente(self) -> bool:
+        return self.isVisible() and (self.no_topo or self._na_frente)
+
+    def _vigiar_frente(self) -> None:
+        if not self._na_frente:
+            self._frente.stop()
+            return
+        fg, pid = winapi.primeiro_plano()
+        if not fg:                               # foco em trânsito
+            return
+        nosso = pid == os.getpid()               # o widget ou um menu dele
+        if self._com_foco:
+            if not nosso:
+                self.aplicar_fixacao()           # perdeu o foco: volta para trás dos apps
+            return
+        if nosso:
+            return
+        if time.monotonic() - self._frente_desde < 0.8:
+            self._fg_frente = fg                 # o clique na bandeja ainda está assentando o foco
+            return
+        if not self._fg_frente:
+            self._fg_frente = fg
+        elif fg != self._fg_frente:
+            self.aplicar_fixacao()               # foco foi para outra janela: volta para trás dos apps
+
     def alternar_fixado(self) -> None:
         self.cfg["fixado"] = not self.cfg["fixado"]
         self.cfg.salvar()
         self.aplicar_fixacao()
-        self.avisar("Fixado sobre outras janelas." if self.cfg["fixado"] else "Fixação desativada.")
+        self.avisar("Fixado sobre outras janelas." if self.cfg["fixado"] else "Atrás dos seus apps de novo.")
 
     def suspender(self, sim: bool) -> None:
         """Jogo/app em tela cheia no monitor do widget: sai de cima enquanto ele estiver aberto."""
@@ -528,15 +594,16 @@ class MonitorWidget(QWidget):
         except Exception:
             return False, 0
         m = msg.message
-        if m == winapi.WM_WINDOWPOSCHANGING and not self.no_topo:
+        if m == winapi.WM_WINDOWPOSCHANGING and not self.no_topo and not self._na_frente:
+            # Solto: qualquer mudança de Z-order (clique, ativação, arraste, Qt) vira "para o fundo".
             wp = winapi.WINDOWPOS.from_address(msg.lParam)
             wp.hwndInsertAfter = winapi.HWND_BOTTOM
             wp.flags &= ~winapi.SWP_NOZORDER
+            wp.flags |= winapi.SWP_NOOWNERZORDER
         elif m == winapi.WM_MOUSEACTIVATE:
             return True, winapi.MA_NOACTIVATE
-        elif m == winapi.MSG_MOSTRAR:
-            self.show()
-            self.aplicar_fixacao()
+        elif m == winapi.MSG_MOSTRAR:             # 2ª instância aberta: mostra na frente por um momento
+            self.mostrar_na_frente()
             return True, 0
         elif m == winapi.MSG_MODO_JOGO:
             if self.ao_modo_jogo:
@@ -549,6 +616,25 @@ class MonitorWidget(QWidget):
             QTimer.singleShot(0, QApplication.quit)
             return True, 0
         return False, 0
+
+    def changeEvent(self, ev) -> None:
+        super().changeEvent(ev)
+        if ev.type() == QEvent.ActivationChange:
+            self._reforcar_ordem()
+
+    def event(self, ev) -> bool:
+        if ev.type() == QEvent.WindowActivate:
+            QTimer.singleShot(0, self._reforcar_ordem)
+        return super().event(ev)
+
+    def showEvent(self, ev) -> None:
+        super().showEvent(ev)
+        QTimer.singleShot(0, self._reforcar_ordem)
+
+    def hideEvent(self, ev) -> None:
+        super().hideEvent(ev)
+        self._na_frente = False
+        self._frente.stop()
 
     # ------------------------------------------------------------------ posição
 
@@ -650,7 +736,8 @@ class MonitorWidget(QWidget):
 
     def _dica(self, alvo: str | None) -> str:
         if alvo == "fixar":
-            return "Desafixar widget" if self.cfg["fixado"] else "Fixar widget sobre outras janelas"
+            return ("Soltar: voltar para trás dos apps" if self.cfg["fixado"]
+                    else "Fixar sobre outras janelas")
         if alvo and alvo.startswith("menu:"):
             return "Menu"
         if alvo == "jogo":
@@ -713,7 +800,7 @@ class MonitorWidget(QWidget):
             self._arrasto = None
             self._cursor()
             self._salvar_posicao_livre()
-            self.aplicar_fixacao()
+            self._reforcar_ordem()               # solto: de volta para trás dos apps (fixado: no topo)
 
     def _acionar(self, alvo: str) -> None:
         if alvo == "fixar":
@@ -726,9 +813,11 @@ class MonitorWidget(QWidget):
             menu = self.criar_menu()
             canto = self.mapToGlobal(QPoint(int(pil.right()), int(pil.bottom()) + 6))
             menu.exec(QPoint(canto.x() - menu.sizeHint().width(), canto.y()))
+            self._reforcar_ordem()
 
     def contextMenuEvent(self, ev) -> None:
         self.criar_menu().exec(ev.globalPos())
+        self._reforcar_ordem()
 
     # ------------------------------------------------------------------ pintura: utilidades
 

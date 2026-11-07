@@ -12,14 +12,17 @@ PASTA = os.path.join(os.environ.get("APPDATA", os.path.expanduser("~")), "Monito
 ARQUIVO = os.path.join(PASTA, "config.json")
 LOG = os.path.join(PASTA, "erro.log")
 
+VERSAO = 2                      # sobe quando um padrão muda e as configurações salvas precisam migrar
+
 PADRAO = {
+    "versao": VERSAO,
     "monitor": None,            # nome do monitor no Qt; None = principal
     "ancora": "sup-dir",        # sup-dir | sup-esq | inf-dir | inf-esq | centro
     "livre": False,             # True depois que o usuário arrasta o widget
     "x_rel": 0,                 # posição livre, relativa ao canto do monitor
     "y_rel": 0,
     "travado": False,
-    "fixado": True,             # alfinete: sempre por cima das janelas (False = fica na área de trabalho)
+    "fixado": False,            # alfinete: True = sempre por cima das janelas; False = atrás dos apps
     "tema": "padrao",           # só escolhe a arte do ícone da bandeja (temas/ ou %APPDATA%\\MonitorPC\\temas)
     "layout": "coluna",         # coluna | painel (se não couber no monitor, usa o outro sozinho)
     "mostrar_nucleos": True,
@@ -38,9 +41,23 @@ class Config(dict):
         try:
             with open(ARQUIVO, encoding="utf-8") as f:
                 salvo = json.load(f)
-            self.update({k: v for k, v in salvo.items() if k in PADRAO})
         except (OSError, ValueError):
-            pass
+            return
+        if not isinstance(salvo, dict):
+            return
+        self.update({k: v for k, v in salvo.items() if k in PADRAO})
+        versao = salvo.get("versao", 1)
+        if not isinstance(versao, int) or versao < VERSAO:
+            self._migrar(versao if isinstance(versao, int) else 1)
+
+    def _migrar(self, de: int) -> None:
+        """Roda uma vez por versão, para quem já tinha configurações salvas."""
+        if de < 2:
+            # Até a versão 1 o alfinete vinha ligado por padrão (widget por cima dos apps) sem o
+            # usuário escolher. Volta para trás dos apps; quem quiser, liga de novo pelo alfinete.
+            self["fixado"] = False
+        self["versao"] = VERSAO
+        self.salvar()
 
     def salvar(self) -> None:
         try:

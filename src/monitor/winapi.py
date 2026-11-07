@@ -15,8 +15,9 @@ WS_EX_TOOLWINDOW = 0x00000080
 WS_EX_NOACTIVATE = 0x08000000
 WS_EX_APPWINDOW = 0x00040000
 
-HWND_BOTTOM = 1
+HWND_TOP, HWND_BOTTOM = 0, 1
 SWP_NOSIZE, SWP_NOMOVE, SWP_NOZORDER, SWP_NOACTIVATE = 0x1, 0x2, 0x4, 0x10
+SWP_NOOWNERZORDER = 0x200
 
 WM_WINDOWPOSCHANGING = 0x0046
 WM_MOUSEACTIVATE = 0x0021
@@ -73,18 +74,71 @@ def aplicar_estilo_widget(hwnd: int) -> None:
 
 
 def enviar_para_o_fundo(hwnd: int) -> None:
+    """Atrás de todos os apps. O Explorer mantém a área de trabalho (Progman) no fundo, então o
+    widget fica logo acima dela e continua visível onde não há janela por cima."""
     user32.SetWindowPos(wt.HWND(hwnd), wt.HWND(HWND_BOTTOM), 0, 0, 0, 0,
-                        SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE)
+                        SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_NOOWNERZORDER)
+
+
+def trazer_a_frente(hwnd: int) -> None:
+    """Na frente dos apps (sem 'sempre por cima' e sem roubar o foco): aberto de propósito.
+    HWND_TOP sozinho não passa da janela em primeiro plano quando o pedido vem de um processo em
+    segundo plano; TOPMOST e logo NOTOPMOST deixa o widget no alto da pilha dos apps comuns."""
+    flags = SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_NOOWNERZORDER
+    user32.SetWindowPos(wt.HWND(hwnd), wt.HWND(-1), 0, 0, 0, 0, flags)
+    user32.SetWindowPos(wt.HWND(hwnd), wt.HWND(-2), 0, 0, 0, 0, flags)
+
+
+user32.GetWindowThreadProcessId.restype = wt.DWORD
+user32.GetWindowThreadProcessId.argtypes = [wt.HWND, ctypes.POINTER(wt.DWORD)]
+
+
+user32.SetForegroundWindow.argtypes = [wt.HWND]
+user32.AllowSetForegroundWindow.argtypes = [wt.DWORD]
+
+
+def tomar_foco(hwnd: int) -> bool:
+    """Põe o widget em primeiro plano. O Windows só deixa quando o pedido vem de uma ação do
+    usuário (clique na bandeja, 2ª instância aberta por ele); devolve se conseguiu."""
+    user32.SetForegroundWindow(wt.HWND(hwnd))
+    return int(user32.GetForegroundWindow() or 0) == hwnd
+
+
+def permitir_primeiro_plano() -> None:
+    """2ª instância (aberta pelo usuário): deixa a instância que já roda pegar o foco."""
+    user32.AllowSetForegroundWindow(0xFFFFFFFF)   # ASFW_ANY
+
+
+def primeiro_plano() -> tuple[int, int]:
+    """(hwnd, pid) da janela em primeiro plano agora (a que tem o foco)."""
+    h = user32.GetForegroundWindow()
+    if not h:
+        return 0, 0
+    pid = wt.DWORD()
+    user32.GetWindowThreadProcessId(h, ctypes.byref(pid))
+    return int(h), int(pid.value)
+
+
+WS_EX_TOPMOST = 0x00000008
+_SWP_SO_ORDEM = SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_NOOWNERZORDER
+
+
+def esta_no_topo(hwnd: int) -> bool:
+    return bool(user32.GetWindowLongPtrW(wt.HWND(hwnd), GWL_EXSTYLE) & WS_EX_TOPMOST)
 
 
 def trazer_ao_topo(hwnd: int) -> None:
-    """Fixado: sempre por cima das outras janelas (HWND_TOPMOST), sem roubar o foco."""
-    user32.SetWindowPos(wt.HWND(hwnd), wt.HWND(-1), 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE)
+    """Fixado: sempre por cima das outras janelas (HWND_TOPMOST), sem roubar o foco.
+    SWP_NOOWNERZORDER: sem ele, depois de uma ativação o Windows às vezes ignora o TOPMOST."""
+    for _ in range(2):
+        user32.SetWindowPos(wt.HWND(hwnd), wt.HWND(-1), 0, 0, 0, 0, _SWP_SO_ORDEM)
+        if esta_no_topo(hwnd):
+            return
 
 
 def tirar_do_topo(hwnd: int) -> None:
     """Desfaz o 'sempre por cima' (HWND_NOTOPMOST)."""
-    user32.SetWindowPos(wt.HWND(hwnd), wt.HWND(-2), 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE)
+    user32.SetWindowPos(wt.HWND(hwnd), wt.HWND(-2), 0, 0, 0, 0, _SWP_SO_ORDEM)
 
 
 def preparar_transparente(hwnd: int) -> None:
