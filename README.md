@@ -1,7 +1,7 @@
-<h1 align="center">GlassPulse</h1>
+<h1 align="center">CorePulse</h1>
 
 <p align="center">
-  <b>Monitor do PC para a área de trabalho do Windows 11, em cards pretos com um painel neon.</b><br>
+  <b>Monitor de recursos para a área de trabalho do Windows 11, em cards pretos com um painel neon.</b><br>
   CPU, memória, GPU NVIDIA, rede e discos em tempo real — bonito, leve e sem poluir a barra de tarefas.
 </p>
 
@@ -13,10 +13,10 @@
 </p>
 
 <p align="center">
-  <img src="docs/painel.png" alt="GlassPulse: cards pretos em formato de pasta e painel neon amarelo" width="760">
+  <img src="docs/painel.png" alt="CorePulse: cards pretos em formato de pasta e painel neon amarelo" width="760">
 </p>
 
-> **English:** GlassPulse is a featherlight system-monitor widget for the Windows 11 desktop
+> **English:** CorePulse is a featherlight system-monitor widget for the Windows 11 desktop
 > (black folder-shaped cards, thin condensed numbers and one yellow neon panel). Live CPU / per-core, RAM, NVIDIA GPU (NVML), network and
 > disk usage in ~26 MB of RAM and ~0.2 % of total CPU. The interface is in Brazilian Portuguese.
 
@@ -45,6 +45,8 @@
 Tudo fica cinza no uso normal; barras de núcleos e discos acendem no neon acima de ~80 %, e o painel da memória avisa "alta" / "quase cheia".
 
 ### Layouts
+
+As capturas abaixo usam dados fictícios de demonstração (`python ferramentas/gerar_capturas.py`).
 
 <p align="center">
   <img src="docs/coluna.png" alt="Layout em coluna" width="260">
@@ -75,8 +77,8 @@ Não há mais temas de cores; o campo `"tema"` do `config.json` só escolhe a ar
 Requisitos: **Windows 11**, **Python 3.12+** (com `pythonw.exe`). Placa NVIDIA é opcional (sem ela, o bloco de GPU some).
 
 ```powershell
-git clone https://github.com/kaykyoncode/glasspulse.git
-cd glasspulse
+git clone https://github.com/kaykyoncode/corepulse.git
+cd corepulse
 .\instalar.ps1
 ```
 
@@ -84,7 +86,13 @@ O `instalar.ps1` instala as dependências **dentro do projeto** (`.libs`, nada g
 os atalhos: um na pasta de inicialização do Windows (para abrir no logon) e um na sua área de trabalho
 (ou em `Desktop\05 Atalhos`, se essa pasta existir). Use `-SemInicio` para não iniciar com o Windows.
 
-Para abrir agora: dê dois cliques no atalho **Monitor do PC** ou rode `pythonw monitor_pc.pyw`.
+Para abrir agora: dê dois cliques no atalho **CorePulse** ou rode `pythonw corepulse.pyw`.
+
+Ao atualizar uma instalação anterior, feche o widget antes de executar `instalar.ps1`.
+As preferências e o estado do Modo Jogo migram automaticamente para `%APPDATA%\CorePulse`
+se a pasta nova ainda não existir. O instalador substitui os atalhos antigos nos locais em que cria
+os novos. A primeira ativação do Modo Jogo após a mudança de nome pode pedir permissão de administrador
+para registrar `\CorePulse\Modo Jogo` e remover a tarefa anterior.
 
 ## Uso
 
@@ -95,13 +103,13 @@ Para abrir agora: dê dois cliques no atalho **Monitor do PC** ou rode `pythonw 
 | Monitor / canto / layout | "•••" no topo de qualquer card, clique direito no widget ou no ícone da bandeja |
 | Travar posição | menu → *Travar posição* |
 | Ver por cima dos apps / ocultar | clique esquerdo no ícone da bandeja: o 1º clique traz o widget para a frente (até você clicar em outra janela), o seguinte oculta |
-| Fechar | menu → **Sair** ou `pythonw monitor_pc.pyw --sair` |
+| Fechar | menu → **Sair** ou `pythonw corepulse.pyw --sair` |
 | Iniciar com o Windows | menu → *Iniciar com o Windows* |
-| Modo Jogo | botão logo abaixo do cabeçalho, menu → *Ativar Modo Jogo* ou `pythonw monitor_pc.pyw --modo-jogo` |
+| Modo Jogo | botão logo abaixo do cabeçalho, menu → *Ativar Modo Jogo* ou `pythonw corepulse.pyw --modo-jogo` |
 
-Configuração em `%APPDATA%\MonitorPC\config.json` (a maior parte pelo menu). O campo `"versao"` marca as
+Configuração em `%APPDATA%\CorePulse\config.json` (a maior parte pelo menu). O campo `"versao"` marca as
 migrações já feitas (a 2 desligou uma vez o alfinete de quem o tinha ligado só por ser o padrão antigo). Um campo só existe no arquivo:
-`"plano_mbps"` — a velocidade contratada, em Mb/s, para o "% do plano" da rede (`0` esconde). Erros vão para `%APPDATA%\MonitorPC\erro.log`.
+`"plano_mbps"` — a velocidade contratada, em Mb/s, para o "% do plano" da rede (`0` esconde). Erros vão para `%APPDATA%\CorePulse\erro.log`.
 
 ## Modo Jogo
 
@@ -117,7 +125,7 @@ Um clique fecha o que está aberto e deixa o PC só para o jogo; outro clique de
 - Nunca fecha: Windows, drivers, áudio, NVIDIA/AMD/Intel, periféricos (G HUB, Options+, Razer, Corsair…),
   antivírus, antitrapaça, nem os ajudantes deles. Só mexe no que é do seu usuário.
 - Pausa serviços em segundo plano: Windows Update, indexação, SysMain, telemetria, Otimização de Entrega,
-  spooler e atualizadores (lista em `src/monitor/modo_jogo_admin.py`).
+  spooler e atualizadores (lista em `src/corepulse/modo_jogo_admin.py`).
 - Energia em **Desempenho Máximo** (criado na 1ª vez), Modo de Jogo do Windows e *Otimizações para jogos em
   janela* ligados, memória em espera esvaziada e prioridade acima do normal para o jogo em tela cheia.
 - WSL / Docker, se marcados, são desligados (`wsl --shutdown`).
@@ -127,13 +135,13 @@ Um clique fecha o que está aberto e deixa o PC só para o jogo; outro clique de
 prioridade normal e os apps fechados reabrem (os que tinham janela, os que abrem com o Windows e o papel de
 parede animado; scripts e terminais não).
 
-**Administrador:** na 1ª ativação o Windows pede permissão uma vez. O GlassPulse cria a tarefa agendada
-`\GlassPulse\Modo Jogo` (elevada) e daí em diante liga e desliga sem UAC. Para remover a tarefa, num terminal
-como administrador: `schtasks /Delete /TN "\GlassPulse\Modo Jogo" /F`.
+**Administrador:** na 1ª ativação o Windows pede permissão uma vez. O CorePulse cria a tarefa agendada
+`\CorePulse\Modo Jogo` (elevada) e daí em diante liga e desliga sem UAC. Para remover a tarefa, num terminal
+como administrador: `schtasks /Delete /TN "\CorePulse\Modo Jogo" /F`.
 
-**Segurança:** o estado vai para `%APPDATA%\MonitorPC\modo_jogo\estado.json` antes de fechar qualquer coisa.
+**Segurança:** o estado vai para `%APPDATA%\CorePulse\modo_jogo\estado.json` antes de fechar qualquer coisa.
 Se o PC reiniciar com o Modo Jogo ligado, o widget devolve o plano de energia sozinho ao abrir (os serviços
-já voltam com o Windows). Para ver o que seria feito, sem fazer nada: `python monitor_pc.pyw --modo-jogo-simular`.
+já voltam com o Windows). Para ver o que seria feito, sem fazer nada: `python corepulse.pyw --modo-jogo-simular`.
 
 ## Como funciona
 
@@ -144,7 +152,7 @@ já voltam com o Windows). Para ver o que seria feito, sem fazer nada: `python m
 - **Sempre na tela:** o arraste usa a área útil do monitor sob o cursor e a janela tem tamanho em múltiplos de 4 px, para não sobrar meio pixel fora da borda a 125/150/175 %. Uma checagem depois de cada movimento, outra a cada 3 s e os sinais de monitor ligado/desligado e de mudança de resolução ou escala trazem o widget de volta se ele ficar fora. Se o layout escolhido não couber no monitor, ele troca sozinho entre coluna e painel.
 - **Robustez:** instância única (mutex), watchdog que se relança se o Explorer reiniciar, `--sair` fecha a instância em execução.
 
-Estrutura: `monitor_pc.pyw` (entrada) · `src/monitor/` (`coletores.py`, `widget.py`, `temas.py`, `winapi.py`, `app.py`, `config.py`, `icone.py`, `modo_jogo.py`, `modo_jogo_admin.py`, `modo_jogo_ui.py`) · `temas/` · `assets/` · `fontes/` · `ferramentas/gerar_icone.py` · `instalar.ps1`.
+Estrutura: `corepulse.pyw` (entrada) · `src/corepulse/` (`coletores.py`, `widget.py`, `temas.py`, `winapi.py`, `app.py`, `config.py`, `icone.py`, `modo_jogo.py`, `modo_jogo_admin.py`, `modo_jogo_ui.py`) · `temas/` · `assets/` · `fontes/` · `ferramentas/gerar_icone.py` · `instalar.ps1`.
 
 ## Limitações e ideias
 

@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Configurações salvas em %APPDATA%\\MonitorPC\\config.json e atalho de inicialização."""
+"""Configurações salvas em %APPDATA%\\CorePulse\\config.json e atalho de inicialização."""
 from __future__ import annotations
 
 import json
@@ -8,7 +8,7 @@ import subprocess
 import sys
 
 RAIZ = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-PASTA = os.path.join(os.environ.get("APPDATA", os.path.expanduser("~")), "MonitorPC")
+PASTA = os.path.join(os.environ.get("APPDATA", os.path.expanduser("~")), "CorePulse")
 ARQUIVO = os.path.join(PASTA, "config.json")
 LOG = os.path.join(PASTA, "erro.log")
 
@@ -23,7 +23,7 @@ PADRAO = {
     "y_rel": 0,
     "travado": False,
     "fixado": False,            # alfinete: True = sempre por cima das janelas; False = atrás dos apps
-    "tema": "padrao",           # só escolhe a arte do ícone da bandeja (temas/ ou %APPDATA%\\MonitorPC\\temas)
+    "tema": "padrao",           # só escolhe a arte do ícone da bandeja (temas/ ou %APPDATA%\\CorePulse\\temas)
     "layout": "coluna",         # coluna | painel (se não couber no monitor, usa o outro sozinho)
     "mostrar_nucleos": True,
     "mostrar_processos": True,
@@ -33,6 +33,22 @@ PADRAO = {
     "modo_jogo_escolhas": {},   # app (minúsculo) -> fechar? — lembra o que foi marcado na lista
     "modo_jogo_plano": "",      # GUID do plano "Desempenho Máximo" criado na primeira ativação
 }
+
+
+def migrar_dados() -> None:
+    """Preserva as preferências e o estado do Modo Jogo de instalações anteriores.
+
+    Só move a pasta quando ainda não existe uma instalação CorePulse. Nunca
+    sobrescreve configurações novas nem apaga a origem se a migração falhar.
+    """
+    if os.path.exists(PASTA):
+        return
+    base = os.path.dirname(PASTA)
+    for nome in ("MonitorPC", "GlassPulse"):
+        anterior = os.path.join(base, nome)
+        if os.path.isdir(anterior):
+            os.rename(anterior, PASTA)
+            return
 
 
 class Config(dict):
@@ -78,7 +94,7 @@ def _pasta_inicializar() -> str:
 
 
 def atalho_inicio() -> str:
-    return os.path.join(_pasta_inicializar(), "Monitor do PC.lnk")
+    return os.path.join(_pasta_inicializar(), "CorePulse.lnk")
 
 
 def inicio_ativo() -> bool:
@@ -93,7 +109,7 @@ def _pythonw() -> str:
 
 
 def criar_atalho(destino: str) -> None:
-    script = os.path.join(RAIZ, "monitor_pc.pyw")
+    script = os.path.join(RAIZ, "corepulse.pyw")
     tema = str(Config().get("tema", "padrao"))
     ico = os.path.join(RAIZ, "assets", f"icone-{tema}.ico")
     if not os.path.exists(ico):
@@ -101,7 +117,7 @@ def criar_atalho(destino: str) -> None:
     ps = (
         "$s=(New-Object -ComObject WScript.Shell).CreateShortcut('{lnk}');"
         "$s.TargetPath='{exe}';$s.Arguments='\"{script}\"';$s.WorkingDirectory='{raiz}';"
-        "$s.IconLocation='{ico}';$s.Description='Monitor do PC (widget de recursos)';"
+        "$s.IconLocation='{ico}';$s.Description='CorePulse (widget de recursos)';"
         "$s.WindowStyle=7;$s.Save()"
     ).format(lnk=destino, exe=_pythonw(), script=script, raiz=RAIZ, ico=ico)
     subprocess.run(["powershell", "-NoProfile", "-NonInteractive", "-Command", ps],

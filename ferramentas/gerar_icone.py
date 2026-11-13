@@ -1,10 +1,10 @@
 # -*- coding: utf-8 -*-
 """Prepara os ícones a partir da arte gerada (assets/gerados/icone-<tema>.png):
 limpa os pixels soltos do fundo transparente, grava o mestre 512 px (assets/icone-<tema>.png) e o .ico
-multi-tamanho (assets/icone.ico para o glasspulse, assets/icone-<tema>.ico para os demais).
+multi-tamanho (assets/icone.ico para o corepulse, assets/icone-<tema>.ico para os demais).
 
 Uso:  python ferramentas/gerar_icone.py            (todos os que existirem em assets/gerados)
-Sem arte em assets/gerados, cai no desenho em código (monitor/icone.py) para o ícone padrão."""
+Sem arte em assets/gerados, cai no desenho em código (corepulse/icone.py) para o ícone padrão."""
 import io
 import os
 import sys
@@ -42,7 +42,7 @@ def limpar(img: Image.Image) -> Image.Image:
 def gerar(tema: str, img: Image.Image) -> None:
     mestre = img.resize((512, 512), Image.LANCZOS)
     mestre.save(os.path.join(ASSETS, f"icone-{tema}.png"), optimize=True)
-    destino = "icone.ico" if tema == "glasspulse" else f"icone-{tema}.ico"
+    destino = "icone.ico" if tema == "corepulse" else f"icone-{tema}.ico"
     img.resize((256, 256), Image.LANCZOS).save(os.path.join(ASSETS, destino),
                                                 sizes=[(t, t) for t in TAMANHOS])
     print("ok", tema, "->", destino)
@@ -51,12 +51,12 @@ def gerar(tema: str, img: Image.Image) -> None:
 def reserva() -> None:
     from PySide6.QtCore import QBuffer, QIODevice
     from PySide6.QtGui import QGuiApplication
-    from monitor import icone
+    from corepulse import icone
     app = QGuiApplication([])  # noqa: F841
     buf = QBuffer()
     buf.open(QIODevice.WriteOnly)
     icone.pixmap(512).save(buf, "PNG")
-    gerar("glasspulse", Image.open(io.BytesIO(bytes(buf.data()))))
+    gerar("corepulse", Image.open(io.BytesIO(bytes(buf.data()))))
 
 
 if __name__ == "__main__":

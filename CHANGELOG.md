@@ -1,7 +1,15 @@
 # Changelog
 
-Mudanças importantes do GlassPulse (Monitor do PC). O projeto não tem número de versão: cada entrada
+Mudanças importantes do CorePulse. O projeto não tem número de versão: cada entrada
 corresponde a um commit no `main`, com a data em que entrou.
+
+## 2026-11-13 — CorePulse
+
+- Nome CorePulse na interface, bandeja, atalhos, documentação e repositório.
+- Entrada `corepulse.pyw`, pacote `src/corepulse/` e configurações em `%APPDATA%\CorePulse`.
+- Migração das preferências e do estado do Modo Jogo das instalações anteriores, sem sobrescrever
+  uma configuração CorePulse existente.
+- Tarefa elevada do Modo Jogo em `\CorePulse\Modo Jogo`; ao registrá-la, a tarefa anterior é removida.
 
 ## 2026-11-07 — Não cobre mais os seus apps
 

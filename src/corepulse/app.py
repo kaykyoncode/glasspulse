@@ -22,7 +22,10 @@ def _registrar_erros() -> None:
 
 
 def main() -> int:
+    config.migrar_dados()
     _registrar_erros()
+    if "--migrar-config" in sys.argv:
+        return 0
     if "--modo-jogo-admin" in sys.argv:  # parte elevada do Modo Jogo (tarefa agendada / UAC), sem interface
         from . import modo_jogo_admin
         return modo_jogo_admin.main(sys.argv)
@@ -51,7 +54,7 @@ def main() -> int:
     from PySide6.QtWidgets import QApplication, QMenu, QSystemTrayIcon
 
     from . import coletores, icone, modo_jogo_ui, temas
-    from .widget import MonitorWidget
+    from .widget import CorePulseWidget
 
     try:
         psutil.Process().nice(psutil.BELOW_NORMAL_PRIORITY_CLASS)  # nunca disputa CPU com jogos
@@ -60,7 +63,7 @@ def main() -> int:
 
     app = QApplication(sys.argv[:1])
     app.setQuitOnLastWindowClosed(False)
-    app.setApplicationName("Monitor do PC")
+    app.setApplicationName("CorePulse")
     app.setWindowIcon(icone.icone(temas.obter(config.Config().get("tema"))))
     for arq in sorted(glob.glob(os.path.join(config.RAIZ, "fontes", "*.otf"))
                       + glob.glob(os.path.join(config.RAIZ, "fontes", "*.ttf"))):
@@ -71,7 +74,7 @@ def main() -> int:
     processos = coletores.LeitorProcessos()
     processos.start()
 
-    janela: MonitorWidget
+    janela: CorePulseWidget
     menu_ctx = QMenu()
     menu_bandeja = QMenu()
 
@@ -187,7 +190,7 @@ def main() -> int:
         preencher(menu_ctx)
         return menu_ctx
 
-    janela = MonitorWidget(cfg, coletor, processos, criar_menu)
+    janela = CorePulseWidget(cfg, coletor, processos, criar_menu)
     if "--teste-topo" in sys.argv:       # só para testes: sempre por cima, sem mudar a configuração
         janela.teste_topo = True
     janela.winId()                      # cria o HWND antes de mostrar
@@ -197,7 +200,7 @@ def main() -> int:
     janela.posicionar()
 
     bandeja = QSystemTrayIcon(icone.icone(janela.t), app)
-    bandeja.setToolTip("Monitor do PC")
+    bandeja.setToolTip("CorePulse")
     bandeja.setContextMenu(menu_bandeja)
     bandeja.activated.connect(
         lambda r: clique_bandeja() if r == QSystemTrayIcon.ActivationReason.Trigger else None)
@@ -232,7 +235,7 @@ def main() -> int:
         if janela._hwnd and not winapi.janela_viva(janela._hwnd):
             import subprocess
             bandeja.hide()
-            subprocess.Popen([sys.executable, os.path.join(config.RAIZ, "monitor_pc.pyw"), "--aguardar"],
+            subprocess.Popen([sys.executable, os.path.join(config.RAIZ, "corepulse.pyw"), "--aguardar"],
                              creationflags=0x08000008)
             app.quit()
             return True

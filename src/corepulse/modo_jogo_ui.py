@@ -297,7 +297,7 @@ class Controle(QObject):
         self.janela.estado_jogo = {"ativo": self.ativo, "ocupado": self.ocupado,
                                    "linha": self.resumo() if self.ativo else ""}
         self.janela.pedir_completo()
-        self.bandeja.setToolTip("Monitor do PC — Modo Jogo ativo" if self.ativo else "Monitor do PC")
+        self.bandeja.setToolTip("CorePulse — Modo Jogo ativo" if self.ativo else "CorePulse")
 
     def _avisar(self, titulo: str, texto: str) -> None:
         self.bandeja.showMessage(titulo, texto, self.bandeja.icon(), 7000)

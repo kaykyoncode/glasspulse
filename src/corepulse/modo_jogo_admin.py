@@ -2,8 +2,8 @@
 """Parte do Modo Jogo que precisa de administrador: pausar/retomar serviços, encerrar apps abertos
 como administrador e esvaziar a memória em espera.
 
-Roda como `pythonw monitor_pc.pyw --modo-jogo-admin`, pela tarefa agendada "\\GlassPulse\\Modo Jogo"
-(elevada, criada uma vez com `--instalar-tarefa`). Lê o pedido em %APPDATA%\\MonitorPC\\modo_jogo e
+Roda como `pythonw corepulse.pyw --modo-jogo-admin`, pela tarefa agendada "\\CorePulse\\Modo Jogo"
+(elevada, criada uma vez com `--instalar-tarefa`). Lê o pedido em %APPDATA%\\CorePulse\\modo_jogo e
 responde no mesmo lugar. Só age sobre a lista fixa de serviços abaixo e revalida cada processo antes de
 encerrar: o arquivo de pedido nunca escolhe o que pode ser feito."""
 from __future__ import annotations
@@ -234,20 +234,26 @@ def instalar_tarefa() -> bool:
     def q(s: str) -> str:                                           # texto entre aspas simples no PowerShell
         return s.replace("'", "''")
 
-    script = os.path.join(config.RAIZ, "monitor_pc.pyw")
+    script = os.path.join(config.RAIZ, "corepulse.pyw")
     ps = (
+        "$ErrorActionPreference='Stop';"
         f"$a=New-ScheduledTaskAction -Execute '{q(config._pythonw())}' "
         f"-Argument '\"{q(script)}\" --modo-jogo-admin' -WorkingDirectory '{q(config.RAIZ)}';"
         f"$p=New-ScheduledTaskPrincipal -UserId '{q(psutil.Process().username())}' -LogonType Interactive "
         "-RunLevel Highest;"
         "$s=New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries "
         "-ExecutionTimeLimit (New-TimeSpan -Minutes 5) -MultipleInstances Queue;"
-        "Register-ScheduledTask -TaskPath '\\GlassPulse\\' -TaskName 'Modo Jogo' -Action $a -Principal $p "
-        "-Settings $s -Description 'GlassPulse: pausa e retoma servicos do Modo Jogo.' -Force | Out-Null"
+        "Register-ScheduledTask -TaskPath '\\CorePulse\\' -TaskName 'Modo Jogo' -Action $a -Principal $p "
+        "-Settings $s -Description 'CorePulse: pausa e retoma servicos do Modo Jogo.' -Force | Out-Null"
     )
     r = subprocess.run(["powershell", "-NoProfile", "-NonInteractive", "-Command", ps],
                        capture_output=True, timeout=60, creationflags=modo_jogo.SEM_JANELA)
-    return r.returncode == 0
+    if r.returncode != 0:
+        return False
+    # A tarefa nova já está registrada; a antiga deixa de apontar para a instalação anterior.
+    subprocess.run(["schtasks", "/Delete", "/TN", "\\GlassPulse\\Modo Jogo", "/F"],
+                   capture_output=True, timeout=30, creationflags=modo_jogo.SEM_JANELA)
+    return True
 
 
 def remover_tarefa() -> bool:
@@ -261,6 +267,8 @@ def main(argv: list[str]) -> int:
         return 2
     if "--remover-tarefa" in argv:
         return 0 if remover_tarefa() else 1
+    if "--instalar-tarefa" in argv and not os.path.exists(modo_jogo.PEDIDO):
+        return 0 if instalar_tarefa() else 1
     pedido = _ler(modo_jogo.PEDIDO)
     if pedido and time.time() - float(pedido.get("criado", 0)) < 300:
         try:
@@ -273,7 +281,7 @@ def main(argv: list[str]) -> int:
             resposta = {"ok": False, "erro": repr(erro)}
         _gravar(os.path.join(modo_jogo.PASTA, f"resposta-{pedido.get('id', 'x')}.json"), resposta)
     if "--instalar-tarefa" in argv:
-        instalar_tarefa()
+        return 0 if instalar_tarefa() else 1
     return 0
 
 

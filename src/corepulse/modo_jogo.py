@@ -25,7 +25,7 @@ from . import coletores, config, winapi
 PASTA = os.path.join(config.PASTA, "modo_jogo")
 ESTADO = os.path.join(PASTA, "estado.json")
 PEDIDO = os.path.join(PASTA, "pedido.json")
-TAREFA = "\\GlassPulse\\Modo Jogo"      # tarefa agendada elevada: depois da 1ª vez, sem UAC
+TAREFA = "\\CorePulse\\Modo Jogo"      # tarefa agendada elevada: depois da 1ª vez, sem UAC
 SEM_JANELA = 0x08000000                 # CREATE_NO_WINDOW
 
 WINDIR = os.environ.get("SystemRoot", r"C:\Windows").lower() + "\\"
@@ -624,7 +624,7 @@ def pedir_admin(acao: str, **dados) -> dict | None:
                                            creationflags=SEM_JANELA).returncode == 0:
         pass
     else:
-        script = os.path.join(config.RAIZ, "monitor_pc.pyw")
+        script = os.path.join(config.RAIZ, "corepulse.pyw")
         handle = winapi.executar_como_admin(config._pythonw(), f'"{script}" --modo-jogo-admin --instalar-tarefa',
                                             config.RAIZ)
         if handle is None:
@@ -770,7 +770,7 @@ def restaurar_prioridades(e: dict) -> None:
 # --------------------------------------------------------------------------- simulação (teste)
 
 def simular() -> int:
-    """`python monitor_pc.pyw --modo-jogo-simular`: mostra o que o Modo Jogo faria, sem fazer nada."""
+    """`python corepulse.pyw --modo-jogo-simular`: mostra o que o Modo Jogo faria, sem fazer nada."""
     try:
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     except (AttributeError, ValueError):

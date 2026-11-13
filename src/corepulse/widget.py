@@ -19,7 +19,7 @@ from PySide6.QtWidgets import QApplication, QWidget
 from . import temas, winapi
 
 # ---- cores do guia (docs/estilo-widgets.md do Luna Token Monitor)
-NEON = QColor("#ffe83a")          # Monitor do PC: amarelo (como o card "Nvidia" da referência)
+NEON = QColor("#ffe83a")          # CorePulse: amarelo (como o card "Nvidia" da referência)
 TINTA = QColor("#0b0b0c")         # texto e traços por cima do neon
 T1, T2, T3 = QColor("#f1f1f2"), QColor("#a3a3aa"), QColor("#6c6c74")
 FIO = QColor(255, 255, 255, 18)   # linhas divisórias (.07)
@@ -232,7 +232,7 @@ class Fontes:
         return m
 
 
-class MonitorWidget(QWidget):
+class CorePulseWidget(QWidget):
     def __init__(self, cfg, coletor, processos, criar_menu) -> None:
         flags = Qt.FramelessWindowHint | Qt.Tool | Qt.WindowDoesNotAcceptFocus | Qt.NoDropShadowWindowHint
         super().__init__(None, flags)
@@ -1064,7 +1064,7 @@ class MonitorWidget(QWidget):
     def _e_sis(self, p: QPainter) -> None:
         L, d = self.L, self.d
         sub = f"{self.coletor.cpu_nome} · {self.coletor.cpu_threads} threads"
-        self._titulo(p, L["sis.cab"], "Monitor do PC", sub, reserva=40)
+        self._titulo(p, L["sis.cab"], "CorePulse", sub, reserva=40)
         self._botao(p, L["sis.pin"], "fixado" if self.cfg["fixado"] else "fixar", bool(self.cfg["fixado"]),
                     self._hover == "fixar")
         self._nota(p, L["sis.nota"])

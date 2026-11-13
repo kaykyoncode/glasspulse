@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Sistema de temas: cada tema é um JSON em `temas/` (do projeto) ou em %APPDATA%\\MonitorPC\\temas
+"""Sistema de temas: cada tema é um JSON em `temas/` (do projeto) ou em %APPDATA%\\CorePulse\\temas
 (seus, têm prioridade). Qualquer campo ausente ou inválido herda do tema padrão."""
 from __future__ import annotations
 

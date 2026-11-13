@@ -26,8 +26,8 @@ MSG_MOSTRAR = WM_APP + 1
 MSG_SAIR = WM_APP + 2
 MA_NOACTIVATE = 3
 
-TITULO_JANELA = "Monitor do PC"
-NOME_MUTEX = "Local\\GlassPulse-Widget"
+TITULO_JANELA = "CorePulse"
+NOME_MUTEX = "Local\\CorePulse-Widget"
 
 user32.GetWindowLongPtrW.restype = ctypes.c_ssize_t
 user32.GetWindowLongPtrW.argtypes = [wt.HWND, ctypes.c_int]
